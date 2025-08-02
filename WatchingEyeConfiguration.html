@@ -1,0 +1,193 @@
+﻿<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow" data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true" data-bindheader="true" data-controller="__plugin/WatchingEyeConfigurationjs" data-title="Watching Eye">
+    <style>
+        .disabled-item .listItemBody, .disabled-item .listItemBody .secondary {
+            color: #999;
+        }
+    </style>
+    <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
+        <div class="readOnlyContent auto-center" style="max-width: 1200px;">
+            <h1 class="pageTitle">Watching Eye</h1>
+
+            <div data-role="controlgroup" data-type="horizontal" class="localnav">
+                <a is="emby-linkbutton" class="nav-button ui-btn-active" href="#" data-role="button" data-target="notificationsPage">Notifications</a>
+                <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="limiterPage">Watch Time Limiter</a>
+            </div>
+
+            <form class="watchingEyeForm">
+                <div id="notificationsPage">
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <h2 style="margin-top: 0;">Transcode Notification</h2>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableTranscodeWarning" data-config-key="EnableTranscodeWarning" /><span>Enable Transcode Warning</span></label>
+                            <div class="fieldDescription">If enabled, a notification will be sent when a video starts transcoding.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtMessageText" label="Message Text:" data-config-key="MessageText" />
+                            <div class="fieldDescription">The text to display when transcoding starts. Use {reason} to include the transcode reason.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="numMaxNotifications" label="Max Notifications per Session:" data-config-key="MaxNotifications" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="numInitialDelaySeconds" label="Initial Delay (seconds):" data-config-key="InitialDelaySeconds" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="numDelayBetweenMessagesSeconds" label="Delay Between Messages (seconds):" data-config-key="DelayBetweenMessagesSeconds" />
+                        </div>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkNotifyOnAudioOnlyTranscode" data-config-key="NotifyOnAudioOnlyTranscode" /><span>Notify on Audio-Only Transcode</span></label>
+                        </div>
+                    </div>
+
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <h2 style="margin-top: 0;">Direct Play Notification</h2>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkNotifyOnDirectPlay" data-config-key="NotifyOnDirectPlay" /><span>Notify on Direct Play</span></label>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtDirectPlayMessageText" label="Direct Play Message Text:" data-config-key="DirectPlayMessageText" />
+                        </div>
+                    </div>
+
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <h2 style="margin-top: 0;">Playback Start Notification</h2>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnablePlaybackStartNotification" data-config-key="EnablePlaybackStartNotification" /><span>Enable Playback Start Notification</span></label>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtPlaybackStartMessageText" label="Playback Start Message Text:" data-config-key="PlaybackStartMessageText" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="numPlaybackStartInitialDelaySeconds" label="Initial Delay (seconds):" data-config-key="PlaybackStartInitialDelaySeconds" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="numPlaybackStartMaxNotifications" label="Max Notifications per Session:" data-config-key="PlaybackStartMaxNotifications" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="numPlaybackStartDelayBetweenMessagesSeconds" label="Delay Between Messages (seconds):" data-config-key="PlaybackStartDelayBetweenMessagesSeconds" />
+                        </div>
+                    </div>
+
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <h2 style="margin-top: 0;">General Notification Settings</h2>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableConfirmationButton" data-config-key="EnableConfirmationButton" /><span>Enable Confirmation Button</span></label>
+                            <div class="fieldDescription">If enabled, ALL notifications from this plugin will require manual dismissal (no timeout).</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtExcludedUserNames" label="Excluded Users (comma-separated):" data-config-key="ExcludedUserNames" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtExcludedClients" label="Excluded Clients (comma-separated):" data-config-key="ExcludedClients" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Watch Time Limiter Page -->
+                <div id="limiterPage" class="hide">
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableWatchTimeLimiter" data-config-key="EnableWatchTimeLimiter" /><span>Enable Watch Time Limiter</span></label>
+                            <div class="fieldDescription">If enabled, specified users will have a time limit on their watch time.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <select is="emby-select" id="selectWatchTimeResetType" label="Reset Schedule:" data-config-key="WatchTimeResetType">
+                                <option value="Minutes">After a set number of minutes</option>
+                                <option value="Daily">Daily at a specific time</option>
+                                <option value="Weekly">Weekly on a specific day</option>
+                            </select>
+                        </div>
+
+                        <div id="resetMinutesContainer" class="inputContainer">
+                            <input is="emby-input" type="number" id="numWatchTimeResetIntervalMinutes" label="Reset Interval (Minutes):" data-config-key="WatchTimeResetIntervalMinutes" />
+                            <div class="fieldDescription">How often the watch time for users should be reset.</div>
+                        </div>
+
+                        <div id="resetDailyContainer" class="hide">
+                            <div class="inputContainer">
+                                <select is="emby-select" id="selectWatchTimeResetTimeOfDayHours" label="Reset Time:" data-config-key="WatchTimeResetTimeOfDayHours">
+                                    <option value="0">12:00 AM (Midnight)</option>
+                                    <option value="1">1:00 AM</option>
+                                    <option value="2">2:00 AM</option>
+                                    <option value="3">3:00 AM</option>
+                                    <option value="4">4:00 AM</option>
+                                    <option value="5">5:00 AM</option>
+                                    <option value="6">6:00 AM</option>
+                                    <option value="7">7:00 AM</option>
+                                    <option value="8">8:00 AM</option>
+                                    <option value="9">9:00 AM</option>
+                                    <option value="10">10:00 AM</option>
+                                    <option value="11">11:00 AM</option>
+                                    <option value="12">12:00 PM (Noon)</option>
+                                    <option value="13">1:00 PM</option>
+                                    <option value="14">2:00 PM</option>
+                                    <option value="15">3:00 PM</option>
+                                    <option value="16">4:00 PM</option>
+                                    <option value="17">5:00 PM</option>
+                                    <option value="18">6:00 PM</option>
+                                    <option value="19">7:00 PM</option>
+                                    <option value="20">8:00 PM</option>
+                                    <option value="21">9:00 PM</option>
+                                    <option value="22">10:00 PM</option>
+                                    <option value="23">11:00 PM</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div id="resetWeeklyContainer" class="hide">
+                            <div class="inputContainer">
+                                <select is="emby-select" id="selectWatchTimeResetDayOfWeek" label="Reset Day:" data-config-key="WatchTimeResetDayOfWeek">
+                                    <option value="0">Sunday</option>
+                                    <option value="1">Monday</option>
+                                    <option value="2">Tuesday</option>
+                                    <option value="3">Wednesday</option>
+                                    <option value="4">Thursday</option>
+                                    <option value="5">Friday</option>
+                                    <option value="6">Saturday</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtWatchTimeLimitMessageText" label="Limit Reached Message Text:" data-config-key="WatchTimeLimitMessageText" />
+                        </div>
+
+                        <h3 style="margin-top:2em;">Limited Users</h3>
+                        <div id="limitedUsersContainer">
+                        </div>
+                        <button is="emby-button" type="button" class="raised button-submit" id="btnAddLimitedUser" style="margin-top: 1em;">
+                            <span>Add User</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div style="margin-top: 2em;">
+                    <button is="emby-button" type="submit" class="raised button-submit block">
+                        <span>Save</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <template id="limitedUserDialogTemplate">
+        <div class="dialogHeader">
+            <button is="emby-button" type="button" class="paper-icon-button-light btnCancel" tabindex="-1"><i class="md-icon">arrow_back</i></button>
+            <h3 class="dialogTitle">Add Limited User</h3>
+        </div>
+        <div class="dialogContent">
+            <form class="dialogContentInner" style="padding-top: 2em;">
+                <div class="inputContainer">
+                    <select is="emby-select" id="selectUser" label="Select User:" required></select>
+                </div>
+                <div class="inputContainer">
+                    <input is="emby-input" id="numUserWatchTime" type="number" label="Watch Time Limit (Minutes):" required value="120" />
+                </div>
+                <div class="dialogButtons">
+                    <button is="emby-button" type="submit" class="raised button-submit block"><span>Add User</span></button>
+                </div>
+            </form>
+        </div>
+    </template>
+</div>

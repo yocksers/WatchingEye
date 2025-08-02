@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net6.0</TargetFramework>
+		<AssemblyName>WatchingEye</AssemblyName>
+		<OutputType>Library</OutputType>
+
+		<!-- This enables modern C# features and nullable support -->
+		<LangVersion>10.0</LangVersion>
+		<Nullable>enable</Nullable>
+
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+		<AssemblyVersion>1.0.0.3</AssemblyVersion>
+		<FileVersion>1.0.0.3</FileVersion>
+		<RootNamespace>WatchingEye</RootNamespace>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Remove="Images\logo.jpg" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<EmbeddedResource Include="Images\logo.jpg" />
+		<EmbeddedResource Include="WatchingEyeConfiguration.html" />
+		<EmbeddedResource Include="WatchingEyeConfiguration.js" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="MediaBrowser.Server.Core" Version="4.8.11" />
+	</ItemGroup>
+
+
+	<ItemGroup>
+		<None Update="plugin.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+
+</Project>
