@@ -5,5 +5,6 @@
         public const string ExtendTime = "/WatchingEye/ExtendTime";
         public const string LimitedUsersStatus = "/WatchingEye/LimitedUsersStatus";
         public const string ToggleUserLimit = "/WatchingEye/ToggleUserLimit";
+        public const string EditUserLimit = "/WatchingEye/EditUserLimit";
     }
 }

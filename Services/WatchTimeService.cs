@@ -1,4 +1,4 @@
-﻿using MediaBrowser.Model.Services;
+﻿﻿using MediaBrowser.Model.Services;
 using System.Collections.Generic;
 using System.Linq;
 using WatchingEye.Api;
@@ -19,6 +19,13 @@ namespace WatchingEye.Services
     public class ToggleUserLimitRequest : IReturnVoid
     {
         public string UserId { get; set; } = string.Empty;
+    }
+
+    [Route(ApiRoutes.EditUserLimit, "POST", Summary = "Edits the watch time limit for a specific user.")]
+    public class EditUserLimitRequest : IReturnVoid
+    {
+        public string UserId { get; set; } = string.Empty;
+        public int Minutes { get; set; }
     }
 
     public class LimitedUserStatus
@@ -65,6 +72,23 @@ namespace WatchingEye.Services
             if (user != null)
             {
                 user.IsEnabled = !user.IsEnabled;
+                plugin.UpdateConfiguration(config);
+            }
+        }
+
+        public void Post(EditUserLimitRequest request)
+        {
+            var plugin = Plugin.Instance;
+            if (plugin == null || string.IsNullOrEmpty(request.UserId) || request.Minutes <= 0)
+            {
+                return;
+            }
+
+            var config = plugin.Configuration;
+            var user = config.LimitedUsers.FirstOrDefault(u => u.UserId == request.UserId);
+            if (user != null)
+            {
+                user.WatchTimeLimitMinutes = request.Minutes;
                 plugin.UpdateConfiguration(config);
             }
         }
