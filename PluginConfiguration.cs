@@ -1,4 +1,4 @@
-﻿using MediaBrowser.Model.Plugins;
+﻿﻿﻿using MediaBrowser.Model.Plugins;
 using System;
 using System.Collections.Generic;
 
@@ -10,25 +10,37 @@ namespace WatchingEye
         public string Username { get; set; } = string.Empty;
         public int WatchTimeLimitMinutes { get; set; } = 120;
         public bool IsEnabled { get; set; } = true;
+
+        // Per-user reset settings
+        public ResetIntervalType WatchTimeResetType { get; set; } = ResetIntervalType.Daily;
+        public int WatchTimeResetIntervalMinutes { get; set; } = 1440;
+        public int WatchTimeResetTimeOfDayHours { get; set; } = 3;
+        public DayOfWeek WatchTimeResetDayOfWeek { get; set; } = DayOfWeek.Sunday;
+
+        // Time window settings
+        public bool EnableTimeWindow { get; set; } = false;
+        public int WatchWindowStartHour { get; set; } = 0;
+        public int WatchWindowEndHour { get; set; } = 23;
     }
 
     public class UserWatchData
     {
         public string UserId { get; set; } = string.Empty;
         public long WatchedTimeTicks { get; set; }
+        public DateTime LastResetTime { get; set; }
     }
 
     public class WatchTimePersistenceData
     {
         public List<UserWatchData> UserWatchTimes { get; set; } = new List<UserWatchData>();
-        public DateTime LastResetTime { get; set; }
     }
 
     public enum ResetIntervalType
     {
         Minutes,
         Daily,
-        Weekly
+        Weekly,
+        Allowance
     }
 
     public class PluginConfiguration : BasePluginConfiguration
@@ -56,12 +68,7 @@ namespace WatchingEye
         public bool EnableWatchTimeLimiter { get; set; } = false;
         public List<LimitedUser> LimitedUsers { get; set; } = new List<LimitedUser>();
         public string WatchTimeLimitMessageText { get; set; } = "You have reached your watch time limit. Playback is now disabled until the timer resets.";
-
-        public ResetIntervalType WatchTimeResetType { get; set; } = ResetIntervalType.Minutes;
-        public int WatchTimeResetIntervalMinutes { get; set; } = 1440;
-        public int WatchTimeResetTimeOfDayHours { get; set; } = 3;
-        public DayOfWeek WatchTimeResetDayOfWeek { get; set; } = DayOfWeek.Sunday;
-
+        public string TimeWindowBlockedMessageText { get; set; } = "Playback is not allowed at this time. Please try again during your allowed watch window.";
 
         public PluginConfiguration()
         {

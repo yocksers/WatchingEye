@@ -74,9 +74,10 @@ namespace WatchingEye
 
                 if (config.EnableWatchTimeLimiter)
                 {
-                    if (!WatchTimeManager.IsPlaybackAllowed(session.UserId))
+                    var blockReason = WatchTimeManager.GetPlaybackBlockReason(session.UserId);
+                    if (blockReason != PlaybackBlockReason.Allowed)
                     {
-                        await WatchTimeManager.StopPlaybackForUser(session.UserId);
+                        await WatchTimeManager.StopPlaybackForUser(session.UserId, blockReason);
                         return;
                     }
                 }
@@ -135,6 +136,8 @@ namespace WatchingEye
 
             var transcodeReasons = string.Join(", ", session.TranscodingInfo.TranscodeReasons);
             var message = config.MessageText.Replace("{reason}", transcodeReasons);
+
+            LogManager.LogTranscode(session, transcodeReasons);
 
             await SendNotificationAsync(session, "Transcode Warning", message, config.InitialDelaySeconds,
                 config.MaxNotifications, config.DelayBetweenMessagesSeconds, config.EnableConfirmationButton, _transcodeNotificationsSent);

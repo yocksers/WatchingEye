@@ -1,4 +1,4 @@
-﻿using System;
+﻿﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -57,12 +57,14 @@ namespace WatchingEye
         {
             TranscodeMonitor.Start(_sessionManager, _logger);
             WatchTimeManager.Start(_sessionManager, _logger, _appPaths, _jsonSerializer);
+            LogManager.Start(_logger, _jsonSerializer, _appPaths);
         }
 
         public void Dispose()
         {
             TranscodeMonitor.Stop();
             WatchTimeManager.Stop();
+            LogManager.Stop();
         }
 
         public Stream GetThumbImage()
