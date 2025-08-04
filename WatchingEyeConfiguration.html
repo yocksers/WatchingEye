@@ -13,19 +13,50 @@
             justify-content: space-between;
             align-items: center;
         }
+
+        .user-editor {
+            padding: 1.5em;
+            background: rgba(0,0,0,.2);
+            border-radius: 5px;
+        }
+
+            .user-editor h3 {
+                margin: 1em 0;
+            }
+
+            .user-editor .inputContainer {
+                margin-top: 1em;
+            }
+
+        .user-editor-flex-container {
+            display: flex;
+            gap: 1.5em;
+            flex-wrap: wrap;
+        }
+
+            .user-editor-flex-container > div {
+                flex-grow: 1;
+                min-width: 200px;
+            }
+
+        .user-editor-buttons {
+            margin-top: 1.5em;
+            display: flex;
+            gap: 1em;
+        }
     </style>
     <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
         <div class="readOnlyContent auto-center" style="max-width: 1200px;">
             <h1 class="pageTitle">Watching Eye</h1>
 
             <div data-role="controlgroup" data-type="horizontal" class="localnav">
-                <a is="emby-linkbutton" class="nav-button ui-btn-active" href="#" data-role="button" data-target="notificationsPage">Notifications</a>
-                <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="limiterPage">Watch Time Limiter</a>
+                <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="notificationsPage">Notifications</a>
+                <a is="emby-linkbutton" class="nav-button ui-btn-active" href="#" data-role="button" data-target="limiterPage">Watch Time Limiter</a>
                 <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="loggingPage">Logging</a>
             </div>
 
             <form class="watchingEyeForm">
-                <div id="notificationsPage">
+                <div id="notificationsPage" class="hide">
                     <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
                         <h2 style="margin-top: 0;">Transcode Notification</h2>
                         <div class="checkboxContainer">
@@ -95,7 +126,7 @@
                 </div>
 
                 <!-- Watch Time Limiter Page -->
-                <div id="limiterPage" class="hide">
+                <div id="limiterPage">
                     <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
                         <div class="checkboxContainer">
                             <label><input is="emby-checkbox" type="checkbox" id="chkEnableWatchTimeLimiter" data-config-key="EnableWatchTimeLimiter" /><span>Enable Watch Time Limiter</span></label>
@@ -145,102 +176,4 @@
             </form>
         </div>
     </div>
-
-    <template id="userLimitDialogTemplate">
-        <div class="dialogHeader">
-            <button is="emby-button" type="button" class="paper-icon-button-light btnCancel" tabindex="-1"><i class="md-icon">arrow_back</i></button>
-            <h3 class="dialogTitle">Configure User Limit</h3>
-        </div>
-        <div class="dialogContent">
-            <form class="dialogContentInner" style="padding-top: 2em;">
-                <div class="inputContainer selectUserContainer">
-                    <select is="emby-select" id="selectUser" label="Select User:" required></select>
-                </div>
-                <div class="inputContainer txtUsernameContainer hide">
-                    <input is="emby-input" id="txtUsername" type="text" label="User:" readonly />
-                </div>
-                <div class="inputContainer">
-                    <input is="emby-input" id="numUserWatchTime" type="number" label="Watch Time Limit (Minutes):" required value="120" />
-                </div>
-
-                <hr />
-                <h3 style="margin: 1em 0;">Allowed Watch Window</h3>
-                <div class="checkboxContainer">
-                    <label>
-                        <input is="emby-checkbox" type="checkbox" id="chkEnableTimeWindow" />
-                        <span>Restrict playback to a specific time window</span>
-                    </label>
-                </div>
-                <div id="timeWindowContainer" class="hide">
-                    <div style="display: flex; gap: 1em;">
-                        <div class="inputContainer" style="flex-grow: 1;">
-                            <select is="emby-select" id="selectWatchWindowStartHour" label="From:"></select>
-                        </div>
-                        <div class="inputContainer" style="flex-grow: 1;">
-                            <select is="emby-select" id="selectWatchWindowEndHour" label="To:"></select>
-                        </div>
-                    </div>
-                </div>
-
-                <hr />
-                <h3 style="margin: 1em 0;">Reset Schedule</h3>
-                <div class="inputContainer">
-                    <select is="emby-select" id="selectWatchTimeResetType" label="Reset Schedule:" data-config-key="WatchTimeResetType">
-                        <option value="Minutes">After a set number of minutes</option>
-                        <option value="Daily">Daily at a specific time</option>
-                        <option value="Weekly">Weekly on a specific day</option>
-                        <option value="Allowance">Allowance (Manual Reset Only)</option>
-                    </select>
-                </div>
-
-                <div id="resetMinutesContainer" class="inputContainer">
-                    <input is="emby-input" type="number" id="numWatchTimeResetIntervalMinutes" label="Reset Interval (Minutes):" />
-                </div>
-
-                <div id="resetDailyContainer" class="hide">
-                    <select is="emby-select" id="selectWatchTimeResetTimeOfDayHours" label="Reset Time:">
-                        <option value="0">12:00 AM (Midnight)</option>
-                        <option value="1">1:00 AM</option>
-                        <option value="2">2:00 AM</option>
-                        <option value="3">3:00 AM</option>
-                        <option value="4">4:00 AM</option>
-                        <option value="5">5:00 AM</option>
-                        <option value="6">6:00 AM</option>
-                        <option value="7">7:00 AM</option>
-                        <option value="8">8:00 AM</option>
-                        <option value="9">9:00 AM</option>
-                        <option value="10">10:00 AM</option>
-                        <option value="11">11:00 AM</option>
-                        <option value="12">12:00 PM (Noon)</option>
-                        <option value="13">1:00 PM</option>
-                        <option value="14">2:00 PM</option>
-                        <option value="15">3:00 PM</option>
-                        <option value="16">4:00 PM</option>
-                        <option value="17">5:00 PM</option>
-                        <option value="18">6:00 PM</option>
-                        <option value="19">7:00 PM</option>
-                        <option value="20">8:00 PM</option>
-                        <option value="21">9:00 PM</option>
-                        <option value="22">10:00 PM</option>
-                        <option value="23">11:00 PM</option>
-                    </select>
-                </div>
-
-                <div id="resetWeeklyContainer" class="hide">
-                    <select is="emby-select" id="selectWatchTimeResetDayOfWeek" label="Reset Day:">
-                        <option value="0">Sunday</option>
-                        <option value="1">Monday</option>
-                        <option value="2">Tuesday</option>
-                        <option value="3">Wednesday</option>
-                        <option value="4">Thursday</option>
-                        <option value="5">Friday</option>
-                        <option value="6">Saturday</option>
-                    </select>
-                </div>
-                <div class="dialogButtons">
-                    <button is="emby-button" type="submit" class="raised button-submit block"><span>Save</span></button>
-                </div>
-            </form>
-        </div>
-    </template>
 </div>

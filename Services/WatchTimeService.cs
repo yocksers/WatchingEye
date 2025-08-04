@@ -1,4 +1,4 @@
-﻿﻿﻿using MediaBrowser.Model.Services;
+﻿using MediaBrowser.Model.Services;
 using System.Collections.Generic;
 using System.Linq;
 using WatchingEye.Api;
@@ -20,20 +20,6 @@ namespace WatchingEye.Services
     public class ToggleUserLimitRequest : IReturnVoid
     {
         public string UserId { get; set; } = string.Empty;
-    }
-
-    [Route(ApiRoutes.EditUserLimit, "POST", Summary = "Edits the watch time limit for a specific user.")]
-    public class EditUserLimitRequest : IReturnVoid
-    {
-        public string UserId { get; set; } = string.Empty;
-        public int WatchTimeLimitMinutes { get; set; }
-        public ResetIntervalType WatchTimeResetType { get; set; }
-        public int WatchTimeResetIntervalMinutes { get; set; }
-        public int WatchTimeResetTimeOfDayHours { get; set; }
-        public DayOfWeek WatchTimeResetDayOfWeek { get; set; }
-        public bool EnableTimeWindow { get; set; }
-        public int WatchWindowStartHour { get; set; }
-        public int WatchWindowEndHour { get; set; }
     }
 
     [Route(ApiRoutes.ResetUserTime, "POST", Summary = "Resets the tracked watch time for a single user.")]
@@ -90,29 +76,6 @@ namespace WatchingEye.Services
             {
                 user.IsEnabled = !user.IsEnabled;
                 plugin.UpdateConfiguration(config);
-            }
-        }
-
-        public void Post(EditUserLimitRequest request)
-        {
-            var plugin = Plugin.Instance;
-            if (plugin == null || string.IsNullOrEmpty(request.UserId) || request.WatchTimeLimitMinutes <= 0) return;
-
-            var config = plugin.Configuration;
-            var user = config.LimitedUsers.FirstOrDefault(u => u.UserId == request.UserId);
-            if (user != null)
-            {
-                user.WatchTimeLimitMinutes = request.WatchTimeLimitMinutes;
-                user.WatchTimeResetType = request.WatchTimeResetType;
-                user.WatchTimeResetIntervalMinutes = request.WatchTimeResetIntervalMinutes;
-                user.WatchTimeResetTimeOfDayHours = request.WatchTimeResetTimeOfDayHours;
-                user.WatchTimeResetDayOfWeek = request.WatchTimeResetDayOfWeek;
-                user.EnableTimeWindow = request.EnableTimeWindow;
-                user.WatchWindowStartHour = request.WatchWindowStartHour;
-                user.WatchWindowEndHour = request.WatchWindowEndHour;
-                plugin.UpdateConfiguration(config);
-
-                WatchTimeManager.CalculateAllNextResetTimes();
             }
         }
 

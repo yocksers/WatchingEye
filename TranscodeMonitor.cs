@@ -59,10 +59,13 @@ namespace WatchingEye
                 _transcodeNotificationsSent.TryRemove(session.Id, out _);
                 _directPlayNotificationsSent.TryRemove(session.Id, out _);
                 _playbackStartNotificationsSent.TryRemove(session.Id, out _);
+
+                // Notify WatchTimeManager that the session has ended to clean up tracking
+                WatchTimeManager.OnSessionStopped(session.Id);
             }
         }
 
-        private static async void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
+        private static void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
         {
             try
             {
@@ -77,7 +80,8 @@ namespace WatchingEye
                     var blockReason = WatchTimeManager.GetPlaybackBlockReason(session.UserId);
                     if (blockReason != PlaybackBlockReason.Allowed)
                     {
-                        await WatchTimeManager.StopPlaybackForUser(session.UserId, blockReason);
+                        // Use Task.Run to avoid blocking the event handler
+                        _ = Task.Run(() => WatchTimeManager.StopPlaybackForUser(session.UserId, blockReason));
                         return;
                     }
                 }
@@ -98,8 +102,19 @@ namespace WatchingEye
                 if (excludedClients.Contains(session.Client))
                     return;
 
-                _ = Task.Run(() => HandlePlaybackStartNotification(session, config));
-                _ = Task.Run(() => HandleMediaStatusNotification(session, config));
+                // Run notification logic in a background task to avoid blocking the caller
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await HandlePlaybackStartNotification(session, config);
+                        await HandleMediaStatusNotification(session, config);
+                    }
+                    catch (Exception taskEx)
+                    {
+                        _logger?.ErrorException("Error within playback handling task.", taskEx);
+                    }
+                });
             }
             catch (Exception ex)
             {

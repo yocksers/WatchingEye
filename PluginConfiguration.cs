@@ -1,4 +1,4 @@
-﻿﻿﻿using MediaBrowser.Model.Plugins;
+﻿using MediaBrowser.Model.Plugins;
 using System;
 using System.Collections.Generic;
 
@@ -14,13 +14,13 @@ namespace WatchingEye
         // Per-user reset settings
         public ResetIntervalType WatchTimeResetType { get; set; } = ResetIntervalType.Daily;
         public int WatchTimeResetIntervalMinutes { get; set; } = 1440;
-        public int WatchTimeResetTimeOfDayHours { get; set; } = 3;
+        public double WatchTimeResetTimeOfDayHours { get; set; } = 3;
         public DayOfWeek WatchTimeResetDayOfWeek { get; set; } = DayOfWeek.Sunday;
 
         // Time window settings
         public bool EnableTimeWindow { get; set; } = false;
-        public int WatchWindowStartHour { get; set; } = 0;
-        public int WatchWindowEndHour { get; set; } = 23;
+        public double WatchWindowStartHour { get; set; } = 0;
+        public double WatchWindowEndHour { get; set; } = 23.5;
     }
 
     public class UserWatchData

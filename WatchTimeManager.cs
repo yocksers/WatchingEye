@@ -1,4 +1,4 @@
-﻿﻿﻿using MediaBrowser.Common.Configuration;
+﻿using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Serialization;
@@ -23,14 +23,16 @@ namespace WatchingEye
         private static ILogger? _logger;
         private static IJsonSerializer? _jsonSerializer;
         private static string? _watchTimeDataPath;
+        private static string? _lastLimitedUsersJson;
 
         private static bool _isRunning = false;
-        private static readonly int TimerIntervalSeconds = 10;
+        private static readonly int TimerIntervalSeconds = 5;
 
         private static readonly ConcurrentDictionary<string, TimeSpan> _userWatchTime = new(StringComparer.OrdinalIgnoreCase);
         private static readonly ConcurrentDictionary<string, DateTime> _userLastResetTime = new(StringComparer.OrdinalIgnoreCase);
         private static readonly ConcurrentDictionary<string, DateTime> _userNextResetTime = new(StringComparer.OrdinalIgnoreCase);
         private static readonly ConcurrentDictionary<string, bool> _limitReachedNotified = new();
+        private static readonly ConcurrentDictionary<string, DateTime> _sessionLastUpdate = new();
 
         public static void Start(ISessionManager sessionManager, ILogger logger, IApplicationPaths appPaths, IJsonSerializer jsonSerializer)
         {
@@ -60,12 +62,34 @@ namespace WatchingEye
             _logger?.Info("[WatchTimeManager] Stopped.");
         }
 
+        public static void OnSessionStopped(string sessionId)
+        {
+            _sessionLastUpdate.TryRemove(sessionId, out _);
+        }
+
         private static void OnTimerElapsed(object? state)
         {
             try
             {
                 var config = Plugin.Instance?.Configuration;
-                if (config == null || _sessionManager == null || _logger == null || !config.EnableWatchTimeLimiter)
+                if (config == null || _sessionManager == null || _logger == null || _jsonSerializer == null)
+                {
+                    return;
+                }
+
+                var currentLimitedUsersJson = _jsonSerializer.SerializeToString(config.LimitedUsers);
+                if (_lastLimitedUsersJson == null)
+                {
+                    _lastLimitedUsersJson = currentLimitedUsersJson;
+                }
+                else if (_lastLimitedUsersJson != currentLimitedUsersJson)
+                {
+                    _logger.Info("[WatchTimeManager] Limited user configuration changed, recalculating reset times.");
+                    CalculateAllNextResetTimes();
+                    _lastLimitedUsersJson = currentLimitedUsersJson;
+                }
+
+                if (!config.EnableWatchTimeLimiter)
                 {
                     return;
                 }
@@ -79,12 +103,18 @@ namespace WatchingEye
 
                 foreach (var user in limitedUsersMap.Values)
                 {
-                    if (user.WatchTimeResetType != ResetIntervalType.Allowance && _userNextResetTime.TryGetValue(user.UserId, out var nextReset) && DateTime.UtcNow >= nextReset)
+                    if (!_userNextResetTime.ContainsKey(user.UserId))
+                    {
+                        _logger.Info($"[WatchTimeManager] New limited user '{user.Username}' detected. Calculating initial reset time.");
+                        CalculateNextResetTimeForUser(user);
+                    }
+
+                    if (user.WatchTimeResetType != ResetIntervalType.Allowance && _userNextResetTime.TryGetValue(user.UserId, out var nextReset) && DateTime.Now >= nextReset)
                     {
                         _logger.Info($"[WatchTimeManager] Resetting watch time for user '{user.Username}' as their scheduled reset time has passed.");
                         ResetWatchTimeForUser(user.UserId);
                         CalculateNextResetTimeForUser(user);
-                        _logger.Info($"[WatchTimeManager] New reset time for '{user.Username}' is {_userNextResetTime[user.UserId].ToLocalTime()}");
+                        _logger.Info($"[WatchTimeManager] New reset time for '{user.Username}' is {_userNextResetTime[user.UserId]}");
                     }
                 }
 
@@ -111,24 +141,25 @@ namespace WatchingEye
                 ).ToList();
 
                 bool dataChanged = false;
+                var now = DateTime.Now;
                 foreach (var session in activeLimitedSessions)
                 {
                     var userConfig = limitedUsersMap[session.UserId];
 
                     if (userConfig.EnableTimeWindow)
                     {
-                        var now = DateTime.Now;
                         var startHour = userConfig.WatchWindowStartHour;
                         var endHour = userConfig.WatchWindowEndHour;
                         var isOutsideWindow = false;
+                        var currentHour = now.TimeOfDay.TotalHours;
 
-                        if (startHour > endHour)
+                        if (startHour >= endHour)
                         {
-                            if (now.Hour >= endHour && now.Hour < startHour) isOutsideWindow = true;
+                            if (currentHour >= endHour && currentHour < startHour) isOutsideWindow = true;
                         }
                         else
                         {
-                            if (now.Hour < startHour || now.Hour >= endHour) isOutsideWindow = true;
+                            if (currentHour < startHour || currentHour >= endHour) isOutsideWindow = true;
                         }
 
                         if (isOutsideWindow)
@@ -139,17 +170,23 @@ namespace WatchingEye
                         }
                     }
 
-                    var timeToAdd = TimeSpan.FromSeconds(TimerIntervalSeconds);
-                    var newTotalTime = _userWatchTime.AddOrUpdate(session.UserId, timeToAdd, (_, oldTime) => oldTime.Add(timeToAdd));
-                    dataChanged = true;
+                    var lastUpdate = _sessionLastUpdate.GetOrAdd(session.Id, now);
+                    var timeToAdd = now - lastUpdate;
 
-                    var watchTimeLimit = TimeSpan.FromMinutes(userConfig.WatchTimeLimitMinutes);
-
-                    if (newTotalTime >= watchTimeLimit)
+                    if (timeToAdd > TimeSpan.Zero)
                     {
-                        _logger.Info("[WatchTimeManager] User '{0}' ({1}) has exceeded watch time limit of {2:g}. Stopping playback.", session.UserName, session.UserId, watchTimeLimit);
-                        StopPlaybackForUser(session.UserId, PlaybackBlockReason.TimeLimitExceeded).GetAwaiter().GetResult();
+                        var newTotalTime = _userWatchTime.AddOrUpdate(session.UserId, timeToAdd, (_, oldTime) => oldTime.Add(timeToAdd));
+                        dataChanged = true;
+
+                        var watchTimeLimit = TimeSpan.FromMinutes(userConfig.WatchTimeLimitMinutes);
+
+                        if (newTotalTime >= watchTimeLimit)
+                        {
+                            _logger.Info("[WatchTimeManager] User '{0}' ({1}) has exceeded watch time limit of {2:g}. Stopping playback.", session.UserName, session.UserId, watchTimeLimit);
+                            StopPlaybackForUser(session.UserId, PlaybackBlockReason.TimeLimitExceeded).GetAwaiter().GetResult();
+                        }
                     }
+                    _sessionLastUpdate.AddOrUpdate(session.Id, now, (k, v) => now);
                 }
 
                 if (dataChanged || dataCleaned)
@@ -185,7 +222,7 @@ namespace WatchingEye
             _userWatchTime.TryGetValue(userId, out var existingTime);
             var newTime = existingTime - timeToSubtract;
 
-            _userWatchTime.AddOrUpdate(userId, newTime.Ticks > 0 ? newTime : TimeSpan.Zero, (key, oldTime) => newTime.Ticks > 0 ? newTime : TimeSpan.Zero);
+            _userWatchTime.AddOrUpdate(userId, newTime, (key, oldTime) => newTime);
             _limitReachedNotified.TryRemove(userId, out _);
             SaveWatchTimeData();
             _logger.Info("[WatchTimeManager] Successfully extended watch time for user '{0}'. Current watched time is now {1}.", limitedUser.Username, newTime);
@@ -204,23 +241,29 @@ namespace WatchingEye
                 var now = DateTime.Now;
                 var startHour = limitedUser.WatchWindowStartHour;
                 var endHour = limitedUser.WatchWindowEndHour;
+                var currentHour = now.TimeOfDay.TotalHours;
 
-                if (startHour > endHour)
+                if (startHour >= endHour)
                 {
-                    if (now.Hour < startHour && now.Hour >= endHour)
+                    if (currentHour < startHour && currentHour >= endHour)
                     {
-                        _logger?.Info($"[WatchTimeManager] Playback blocked for {limitedUser.Username}. Current time {now.Hour}:00 is outside the allowed window ({startHour}:00 - {endHour}:00).");
+                        _logger?.Info($"[WatchTimeManager] Playback blocked for {limitedUser.Username}. Current time {now:T} is outside the allowed window ({TimeSpan.FromHours(startHour):hh\\:mm} - {TimeSpan.FromHours(endHour):hh\\:mm}).");
                         return PlaybackBlockReason.OutsideTimeWindow;
                     }
                 }
                 else
                 {
-                    if (now.Hour < startHour || now.Hour >= endHour)
+                    if (currentHour < startHour || currentHour >= endHour)
                     {
-                        _logger?.Info($"[WatchTimeManager] Playback blocked for {limitedUser.Username}. Current time {now.Hour}:00 is outside the allowed window ({startHour}:00 - {endHour}:00).");
+                        _logger?.Info($"[WatchTimeManager] Playback blocked for {limitedUser.Username}. Current time {now:T} is outside the allowed window ({TimeSpan.FromHours(startHour):hh\\:mm} - {TimeSpan.FromHours(endHour):hh\\:mm}).");
                         return PlaybackBlockReason.OutsideTimeWindow;
                     }
                 }
+            }
+
+            if (_limitReachedNotified.ContainsKey(userId))
+            {
+                return PlaybackBlockReason.TimeLimitExceeded;
             }
 
             var watchTimeLimit = TimeSpan.FromMinutes(limitedUser.WatchTimeLimitMinutes);
@@ -240,9 +283,30 @@ namespace WatchingEye
             var config = Plugin.Instance?.Configuration;
             if (config == null) return;
 
+            var allUserSessions = _sessionManager.Sessions.Where(s =>
+                string.Equals(s.UserId, userId, StringComparison.OrdinalIgnoreCase) && s.IsActive
+            ).ToList();
+
+            var username = allUserSessions.FirstOrDefault(s => !string.IsNullOrEmpty(s.UserName))?.UserName ?? "Unknown";
+
+            if (!allUserSessions.Any())
+            {
+                _logger?.Info($"[WatchTimeManager] No active sessions found for user {username} ({userId}) to stop, but user is now blocked.");
+                if (reason == PlaybackBlockReason.TimeLimitExceeded)
+                {
+                    if (_limitReachedNotified.TryAdd(userId, true))
+                    {
+                        LogManager.LogLimitReached(userId, username, "System");
+                    }
+                }
+                return;
+            }
+
+            var clientNames = string.Join(", ", allUserSessions.Select(s => s.Client).Distinct());
             string message;
             string header;
-            var username = _sessionManager.Sessions.FirstOrDefault(s => s.UserId == userId)?.UserName ?? "Unknown";
+
+            _logger?.Info($"[WatchTimeManager] Authoritatively stopping ALL playback for user {username} ({userId}). Reason: {reason}");
 
             switch (reason)
             {
@@ -251,32 +315,25 @@ namespace WatchingEye
                     header = "Time Limit Reached";
                     if (_limitReachedNotified.TryAdd(userId, true))
                     {
-                        LogManager.LogLimitReached(userId, username);
+                        LogManager.LogLimitReached(userId, username, clientNames);
                     }
                     break;
                 case PlaybackBlockReason.OutsideTimeWindow:
                     message = config.TimeWindowBlockedMessageText;
                     header = "Playback Not Allowed";
-                    _logger?.Info($"[WatchTimeManager] Stopping playback for {username} due to time window restrictions.");
                     break;
                 default:
                     return;
             }
 
-            var userSessions = _sessionManager.Sessions.Where(s =>
-                string.Equals(s.UserId, userId, StringComparison.OrdinalIgnoreCase) &&
-                s.NowPlayingItem != null
-            ).ToList();
-
-            foreach (var session in userSessions)
+            foreach (var session in allUserSessions)
             {
-                if (session.PlayState is { IsPaused: false })
-                {
-                    await _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
-                }
-
+                _logger?.Info($"[WatchTimeManager] Sending termination command to session on client '{session.Client}' (ID: {session.Id}).");
+                await _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
                 await _sessionManager.SendMessageCommand(null, session.Id, new MessageCommand { Header = header, Text = message, TimeoutMs = 10000 }, CancellationToken.None).ConfigureAwait(false);
             }
+
+            _logger?.Info($"[WatchTimeManager] Finished sending termination commands to {allUserSessions.Count} session(s) for user {username}. The user is now blocked from starting new streams.");
         }
 
         public static List<LimitedUserStatus> GetLimitedUsersStatus()
@@ -311,7 +368,7 @@ namespace WatchingEye
         public static void ResetWatchTimeForUser(string userId)
         {
             _userWatchTime.AddOrUpdate(userId, TimeSpan.Zero, (k, v) => TimeSpan.Zero);
-            _userLastResetTime.AddOrUpdate(userId, DateTime.UtcNow, (k, v) => DateTime.UtcNow);
+            _userLastResetTime.AddOrUpdate(userId, DateTime.Now, (k, v) => DateTime.Now);
             _limitReachedNotified.TryRemove(userId, out _);
             SaveWatchTimeData();
             _logger?.Info($"[WatchTimeManager] Manually reset watch time for user ID {userId}.");
@@ -343,30 +400,38 @@ namespace WatchingEye
 
         private static void CalculateNextResetTimeForUser(LimitedUser user)
         {
-            var now = DateTime.UtcNow;
-            var lastReset = _userLastResetTime.GetOrAdd(user.UserId, now);
-
+            var now = DateTime.Now;
+            var today = now.Date;
             DateTime nextReset;
+
             switch (user.WatchTimeResetType)
             {
                 case ResetIntervalType.Daily:
-                    var resetTime = lastReset.Date.AddHours(user.WatchTimeResetTimeOfDayHours);
-                    nextReset = resetTime > now ? resetTime : resetTime.AddDays(1);
+                    var resetTimeToday = today.AddHours(user.WatchTimeResetTimeOfDayHours);
+                    nextReset = resetTimeToday;
+                    if (nextReset <= now)
+                    {
+                        nextReset = resetTimeToday.AddDays(1);
+                    }
                     break;
 
                 case ResetIntervalType.Weekly:
-                    var today = lastReset.Date;
                     var daysUntilResetDay = ((int)user.WatchTimeResetDayOfWeek - (int)today.DayOfWeek + 7) % 7;
                     var nextResetDate = today.AddDays(daysUntilResetDay).AddHours(user.WatchTimeResetTimeOfDayHours);
-                    nextReset = nextResetDate > now ? nextResetDate : nextResetDate.AddDays(7);
+                    nextReset = nextResetDate;
+                    if (nextReset <= now)
+                    {
+                        nextReset = nextResetDate.AddDays(7);
+                    }
                     break;
 
                 case ResetIntervalType.Allowance:
-                    nextReset = DateTime.MaxValue; 
+                    nextReset = DateTime.MaxValue;
                     break;
 
                 case ResetIntervalType.Minutes:
                 default:
+                    var lastReset = _userLastResetTime.GetOrAdd(user.UserId, now);
                     int resetMinutes = user.WatchTimeResetIntervalMinutes > 0 ? user.WatchTimeResetIntervalMinutes : 1440;
                     nextReset = lastReset.AddMinutes(resetMinutes);
                     break;
@@ -390,7 +455,10 @@ namespace WatchingEye
                     foreach (var user in data.UserWatchTimes)
                     {
                         _userWatchTime.TryAdd(user.UserId, TimeSpan.FromTicks(user.WatchedTimeTicks));
-                        _userLastResetTime.TryAdd(user.UserId, user.LastResetTime == DateTime.MinValue ? DateTime.UtcNow : user.LastResetTime);
+
+                        // Ensure loaded times are treated as Local. This handles data from older versions.
+                        var lastResetTime = user.LastResetTime == DateTime.MinValue ? DateTime.Now : user.LastResetTime.ToLocalTime();
+                        _userLastResetTime.TryAdd(user.UserId, lastResetTime);
                     }
                     _logger?.Info("[WatchTimeManager] Loaded {0} user watch time records from file.", _userWatchTime.Count);
                 }
@@ -413,7 +481,7 @@ namespace WatchingEye
                     {
                         UserId = kvp.Key,
                         WatchedTimeTicks = kvp.Value.Ticks,
-                        LastResetTime = _userLastResetTime.GetOrAdd(kvp.Key, DateTime.UtcNow)
+                        LastResetTime = _userLastResetTime.GetOrAdd(kvp.Key, DateTime.Now)
                     }).ToList()
                 };
 
