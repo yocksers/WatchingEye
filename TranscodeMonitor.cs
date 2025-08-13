@@ -102,7 +102,6 @@ namespace WatchingEye
                 if (excludedClients.Contains(session.Client))
                     return;
 
-                // Run notification logic in a background task to avoid blocking the caller
                 _ = Task.Run(async () =>
                 {
                     try

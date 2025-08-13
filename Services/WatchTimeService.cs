@@ -42,10 +42,16 @@ namespace WatchingEye.Services
     {
         public string UserId { get; set; } = string.Empty;
         public string Username { get; set; } = string.Empty;
-        public int WatchTimeLimitMinutes { get; set; }
-        public double SecondsWatched { get; set; }
-        public double SecondsRemaining { get; set; }
-        public bool IsLimited { get; set; }
+
+        public int DailyLimitMinutes { get; set; }
+        public int WeeklyLimitHours { get; set; }
+        public int MonthlyLimitHours { get; set; }
+        public int YearlyLimitHours { get; set; }
+
+        public double SecondsWatchedDaily { get; set; }
+        public double SecondsWatchedWeekly { get; set; }
+        public double SecondsWatchedMonthly { get; set; }
+        public double SecondsWatchedYearly { get; set; }
     }
 
     public class WatchTimeService : IService

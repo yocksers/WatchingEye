@@ -8,16 +8,29 @@ namespace WatchingEye
     {
         public string UserId { get; set; } = string.Empty;
         public string Username { get; set; } = string.Empty;
-        public int WatchTimeLimitMinutes { get; set; } = 120;
         public bool IsEnabled { get; set; } = true;
 
-        // Per-user reset settings
-        public ResetIntervalType WatchTimeResetType { get; set; } = ResetIntervalType.Daily;
-        public int WatchTimeResetIntervalMinutes { get; set; } = 1440;
-        public double WatchTimeResetTimeOfDayHours { get; set; } = 3;
-        public DayOfWeek WatchTimeResetDayOfWeek { get; set; } = DayOfWeek.Sunday;
+        public bool EnableDailyLimit { get; set; } = true;
+        public int DailyLimitMinutes { get; set; } = 120;
 
-        // Time window settings
+        public bool EnableWeeklyLimit { get; set; } = false;
+        public int WeeklyLimitHours { get; set; } = 20;
+
+        public bool EnableMonthlyLimit { get; set; } = false;
+        public int MonthlyLimitHours { get; set; } = 80;
+
+        public bool EnableYearlyLimit { get; set; } = false;
+        public int YearlyLimitHours { get; set; } = 0;
+
+        public double ResetTimeOfDayHours { get; set; } = 3; // e.g., 3.0 for 3:00 AM
+        public DayOfWeek WeeklyResetDay { get; set; } = DayOfWeek.Sunday;
+        public int MonthlyResetDay { get; set; } = 1;
+        public int YearlyResetMonth { get; set; } = 1;
+        public int YearlyResetDay { get; set; } = 1;
+
+        public bool EnableThresholdNotifications { get; set; } = false;
+        public string NotificationThresholds { get; set; } = "80,95"; // Comma-separated percentages
+
         public bool EnableTimeWindow { get; set; } = false;
         public double WatchWindowStartHour { get; set; } = 0;
         public double WatchWindowEndHour { get; set; } = 23.5;
@@ -26,21 +39,25 @@ namespace WatchingEye
     public class UserWatchData
     {
         public string UserId { get; set; } = string.Empty;
+
+        public long WatchedTimeTicksDaily { get; set; }
+        public long WatchedTimeTicksWeekly { get; set; }
+        public long WatchedTimeTicksMonthly { get; set; }
+        public long WatchedTimeTicksYearly { get; set; }
+
+        public DateTime LastDailyReset { get; set; }
+        public DateTime LastWeeklyReset { get; set; }
+        public DateTime LastMonthlyReset { get; set; }
+        public DateTime LastYearlyReset { get; set; }
+
         public long WatchedTimeTicks { get; set; }
         public DateTime LastResetTime { get; set; }
     }
 
+
     public class WatchTimePersistenceData
     {
         public List<UserWatchData> UserWatchTimes { get; set; } = new List<UserWatchData>();
-    }
-
-    public enum ResetIntervalType
-    {
-        Minutes,
-        Daily,
-        Weekly,
-        Allowance
     }
 
     public class PluginConfiguration : BasePluginConfiguration

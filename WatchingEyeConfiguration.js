@@ -25,6 +25,7 @@
     }
 
     function renderLogs(view) {
+        // Implementation remains the same as previous version...
         const container = view.querySelector('#logContainer');
         getLogEvents().then(events => {
             if (events.length === 0) {
@@ -52,32 +53,11 @@
     }
 
     function formatTime(hoursDouble) {
+        // Implementation remains the same as previous version...
         if (hoursDouble === null || typeof hoursDouble === 'undefined') return '';
         const hours = Math.floor(hoursDouble);
         const minutes = Math.round((hoursDouble % 1) * 60);
         return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-    }
-
-    function getResetScheduleText(user) {
-        switch (user.WatchTimeResetType) {
-            case 'Daily':
-                return `Resets Daily at ${formatTime(user.WatchTimeResetTimeOfDayHours)}`;
-            case 'Weekly':
-                const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-                return `Resets Weekly on ${days[user.WatchTimeResetDayOfWeek]} at ${formatTime(user.WatchTimeResetTimeOfDayHours)}`;
-            case 'Minutes': return `Resets every ${user.WatchTimeResetIntervalMinutes} minutes`;
-            case 'Allowance': return 'Allowance (Manual Reset)';
-            default: return 'Reset schedule not set';
-        }
-    }
-
-    function getTimeWindowText(user) {
-        if (!user.EnableTimeWindow) {
-            return '';
-        }
-        const start = formatTime(user.WatchWindowStartHour || 0);
-        const end = formatTime(user.WatchWindowEndHour || 0);
-        return `Plays between ${start} and ${end}`;
     }
 
     return class extends BaseView {
@@ -93,6 +73,7 @@
                 this.allUsers = users;
             });
 
+            // Event listeners remain the same as previous version...
             view.querySelector('.watchingEyeForm').addEventListener('submit', (e) => {
                 e.preventDefault();
                 if (this.editingUserId) {
@@ -145,6 +126,17 @@
                 if (!buttonTarget) return;
 
                 const userId = buttonTarget.getAttribute('data-userid');
+
+                if (buttonTarget.classList.contains('user-editor-tab-button')) {
+                    e.preventDefault();
+                    const tabId = buttonTarget.getAttribute('data-tab-id');
+                    const editor = buttonTarget.closest('.user-editor');
+                    editor.querySelectorAll('.user-editor-tab-button').forEach(btn => btn.classList.remove('is-active'));
+                    buttonTarget.classList.add('is-active');
+                    editor.querySelectorAll('.user-editor-tab-content').forEach(content => content.classList.toggle('hide', content.id !== tabId));
+                    return;
+                }
+
                 if (!userId) return;
 
                 if (buttonTarget.classList.contains('btnEditUser')) {
@@ -224,54 +216,69 @@
                 }
             });
 
+
             this.loadData(this.view);
         }
 
         getLimitedUserDisplayHtml(user, status) {
-            let remainingTimeText;
-            if (status) {
-                const remainingMinutes = Math.floor(status.SecondsRemaining / 60);
-                remainingTimeText = `Time Remaining: ${remainingMinutes} of ${user.WatchTimeLimitMinutes} mins`;
-            } else {
-                remainingTimeText = `Time Remaining: ${user.WatchTimeLimitMinutes} of ${user.WatchTimeLimitMinutes} mins`;
-            }
-
             const isEnabled = user.IsEnabled !== false;
             const disabledClass = isEnabled ? '' : 'disabled-item';
             const statusText = isEnabled ? '' : ' (Disabled)';
             const toggleTitle = isEnabled ? 'Disable Limit' : 'Enable Limit';
             const toggleIcon = isEnabled ? 'power_settings_new' : 'block';
 
-            const scheduleText = getResetScheduleText(user);
-            const timeWindowText = getTimeWindowText(user);
-            const combinedScheduleText = [scheduleText, timeWindowText].filter(Boolean).join('<br>');
+            let remainingTimeText = 'No active limits.';
+            if (status) {
+                const parts = [];
+                if (user.EnableDailyLimit) {
+                    const watched = Math.floor(status.SecondsWatchedDaily / 60);
+                    parts.push(`Daily: ${watched}/${status.DailyLimitMinutes}m`);
+                }
+                if (user.EnableWeeklyLimit) {
+                    const watched = Math.floor(status.SecondsWatchedWeekly / 3600);
+                    parts.push(`Weekly: ${watched}/${status.WeeklyLimitHours}h`);
+                }
+                if (user.EnableMonthlyLimit) {
+                    const watched = Math.floor(status.SecondsWatchedMonthly / 3600);
+                    parts.push(`Monthly: ${watched}/${status.MonthlyLimitHours}h`);
+                }
+                if (user.EnableYearlyLimit) {
+                    const watched = Math.floor(status.SecondsWatchedYearly / 3600);
+                    parts.push(`Yearly: ${watched}/${status.YearlyLimitHours}h`);
+                }
+                if (parts.length > 0) {
+                    remainingTimeText = parts.join(' | ');
+                }
+            }
+
+            const timeWindowText = user.EnableTimeWindow ? `Plays between ${formatTime(user.WatchWindowStartHour || 0)} and ${formatTime(user.WatchWindowEndHour || 0)}` : '';
 
             return `
-                    <div class="listItem ${disabledClass}" style="display:flex; align-items: center; padding: 0.5em 0;">
-                        <div class="listItemBody" style="flex-grow: 1;">
-                            <h3 class="listItemTitle">${user.Username}${statusText}</h3>
-                            <div class="listItemText">${combinedScheduleText}</div>
-                            <div class="listItemText secondary">${remainingTimeText}</div>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 0.5em; margin-left: 1em;">
-                            <input is="emby-input" type="number" class="extendTimeMinutes" placeholder="Mins" value="30" style="width: 80px;" data-userid="${user.UserId}" />
-                            <button is="emby-button" type="button" class="raised mini btnExtendTime" data-userid="${user.UserId}" title="Extend Time">
-                                <span>Extend</span>
-                            </button>
-                            <button is="emby-button" type="button" class="fab mini raised paper-icon-button-light btnResetUser" data-userid="${user.UserId}" title="Reset Time">
-                                <i class="md-icon">refresh</i>
-                            </button>
-                            <button is="emby-button" type="button" class="fab mini raised paper-icon-button-light btnEditUser" data-userid="${user.UserId}" title="Edit Limit">
-                                <i class="md-icon">edit</i>
-                            </button>
-                            <button is="emby-button" type="button" class="fab mini raised paper-icon-button-light btnToggleUserLimit" data-userid="${user.UserId}" title="${toggleTitle}">
-                                <i class="md-icon">${toggleIcon}</i>
-                            </button>
-                            <button is="emby-button" type="button" class="fab mini raised paper-icon-button-light btnRemoveUser" data-userid="${user.UserId}" title="Remove User">
-                                <i class="md-icon">delete</i>
-                            </button>
-                        </div>
-                    </div>`;
+                <div class="listItem ${disabledClass}" style="display:flex; align-items: center; padding: 0.5em 0;">
+                    <div class="listItemBody" style="flex-grow: 1;">
+                        <h3 class="listItemTitle">${user.Username}${statusText}</h3>
+                        <div class="listItemText secondary">${remainingTimeText}</div>
+                        <div class="listItemText">${timeWindowText}</div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.5em; margin-left: 1em;">
+                        <input is="emby-input" type="number" class="extendTimeMinutes" placeholder="Mins" value="30" style="width: 80px;" data-userid="${user.UserId}" />
+                        <button is="emby-button" type="button" class="raised mini btnExtendTime" data-userid="${user.UserId}" title="Extend Time">
+                            <span>Extend</span>
+                        </button>
+                        <button is="emby-button" type="button" class="fab mini raised paper-icon-button-light btnResetUser" data-userid="${user.UserId}" title="Reset Time">
+                            <i class="md-icon">refresh</i>
+                        </button>
+                        <button is="emby-button" type="button" class="fab mini raised paper-icon-button-light btnEditUser" data-userid="${user.UserId}" title="Edit Limit">
+                            <i class="md-icon">edit</i>
+                        </button>
+                        <button is="emby-button" type="button" class="fab mini raised paper-icon-button-light btnToggleUserLimit" data-userid="${user.UserId}" title="${toggleTitle}">
+                            <i class="md-icon">${toggleIcon}</i>
+                        </button>
+                        <button is="emby-button" type="button" class="fab mini raised paper-icon-button-light btnRemoveUser" data-userid="${user.UserId}" title="Remove User">
+                            <i class="md-icon">delete</i>
+                        </button>
+                    </div>
+                </div>`;
         }
 
         getLimitedUserEditorHtml(user, isNew = false) {
@@ -288,90 +295,115 @@
                 userSelectHtml = `<input is="emby-input" id="txtUsername" type="text" label="User:" value="${user.Username}" readonly />`;
             }
 
-            let timeOptions = '';
-            for (let i = 0; i < 24; i++) {
-                const hourDisplay = i.toString().padStart(2, '0');
-                timeOptions += `<option value="${i}">${hourDisplay}:00</option>`;
-                timeOptions += `<option value="${i + 0.5}">${hourDisplay}:30</option>`;
-            }
+            // Generate options for select dropdowns
+            const timeOptions = Array.from({ length: 48 }, (_, i) => `<option value="${i / 2}">${String(Math.floor(i / 2)).padStart(2, '0')}:${String((i % 2) * 30).padStart(2, '0')}</option>`).join('');
+            const weekDayOptions = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, i) => `<option value="${i}">${day}</option>`).join('');
+            const monthDayOptions = Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
+            const monthOptions = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+            const yearDayOptions = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
 
-            const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            const dayOptions = days.map((day, i) => `<option value="${i}">${day}</option>`).join('');
 
             return `
-                    <div class="user-editor" data-userid="${user.UserId}">
-                        <h3>${isNew ? 'Add New Limited User' : 'Editing: ' + user.Username}</h3>
-                        <div class="user-editor-flex-container">
-                            <div>
-                                <div class="inputContainer">${userSelectHtml}</div>
-                                <div class="inputContainer">
-                                    <input is="emby-input" class="edit-watch-time" type="number" label="Watch Time Limit (Minutes):" required value="${user.WatchTimeLimitMinutes || 120}" />
-                                </div>
-                            </div>
-                            <div>
-                                <h3 style="margin-top:0;">Allowed Watch Window</h3>
-                                <div class="checkboxContainer">
-                                    <label>
-                                        <input is="emby-checkbox" type="checkbox" class="edit-enable-time-window" ${user.EnableTimeWindow ? 'checked' : ''} />
-                                        <span>Restrict playback to a specific time window</span>
-                                    </label>
-                                </div>
-                                <div class="time-window-container" style="display: flex; gap: 1em;">
-                                    <div class="inputContainer" style="flex-grow: 1;">
-                                        <select is="emby-select" class="edit-window-start" label="From:">${timeOptions}</select>
-                                    </div>
-                                    <div class="inputContainer" style="flex-grow: 1;">
-                                        <select is="emby-select" class="edit-window-end" label="To:">${timeOptions}</select>
-                                    </div>
-                                </div>
-                            </div>
-                            <div>
-                                <h3 style="margin-top:0;">Reset Schedule</h3>
-                                <div class="inputContainer">
-                                     <select is="emby-select" class="edit-reset-type" label="Reset Schedule:">
-                                        <option value="Minutes">After a set number of minutes</option>
-                                        <option value="Daily">Daily at a specific time</option>
-                                        <option value="Weekly">Weekly on a specific day</option>
-                                        <option value="Allowance">Allowance (Manual Reset Only)</option>
-                                    </select>
-                                </div>
-                                <div class="inputContainer">
-                                    <input is="emby-input" class="edit-reset-minutes" type="number" label="Reset Interval (Minutes):" value="${user.WatchTimeResetIntervalMinutes || 1440}" />
-                                </div>
-                                <div class="inputContainer">
-                                    <select is="emby-select" class="edit-reset-hour" label="Reset Time:">${timeOptions}</select>
-                                </div>
-                                <div class="inputContainer">
-                                     <select is="emby-select" class="edit-reset-day" label="Reset Day:">${dayOptions}</select>
-                                </div>
-                            </div>
-                        </div>
+                <div class="user-editor" data-userid="${user.UserId}">
+                    <h3>${isNew ? 'Add New Limited User' : 'Editing: ' + user.Username}</h3>
+                     <div class="inputContainer">${userSelectHtml}</div>
 
-                        <div class="user-editor-buttons">
-                           <button is="emby-button" type="button" class="raised button-submit btn-save-user-inline" data-userid="${user.UserId}"><span>Save User</span></button>
-                           <button is="emby-button" type="button" class="raised button-cancel btn-cancel-edit-user" data-userid="${user.UserId}"><span>Cancel</span></button>
+                    <div class="emby-tabs-slider" style="margin: 1.5em 0 1em;">
+                        <div class="emby-tabs">
+                            <button is="emby-button" type="button" class="emby-tab-button user-editor-tab-button is-active" data-tab-id="tab-limits">Limits</button>
+                            <button is="emby-button" type="button" class="emby-tab-button user-editor-tab-button" data-tab-id="tab-schedule">Reset Schedule</button>
+                            <button is="emby-button" type="button" class="emby-tab-button user-editor-tab-button" data-tab-id="tab-window">Time Window</button>
+                            <button is="emby-button" type="button" class="emby-tab-button user-editor-tab-button" data-tab-id="tab-notifications">Notifications</button>
                         </div>
                     </div>
-                `;
+
+                    <!-- Limits Tab -->
+                    <div id="tab-limits" class="user-editor-tab-content">
+                        <div class="inputContainer">
+                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-enable-daily" ${user.EnableDailyLimit ? 'checked' : ''} /><span>Enable Daily Limit</span></label>
+                             <input is="emby-input" class="edit-daily-minutes" type="number" label="Daily Limit (Minutes):" value="${user.DailyLimitMinutes || 120}" />
+                        </div>
+                        <div class="inputContainer">
+                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-enable-weekly" ${user.EnableWeeklyLimit ? 'checked' : ''} /><span>Enable Weekly Limit</span></label>
+                             <input is="emby-input" class="edit-weekly-hours" type="number" label="Weekly Limit (Hours):" value="${user.WeeklyLimitHours || 20}" />
+                        </div>
+                         <div class="inputContainer">
+                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-enable-monthly" ${user.EnableMonthlyLimit ? 'checked' : ''} /><span>Enable Monthly Limit</span></label>
+                             <input is="emby-input" class="edit-monthly-hours" type="number" label="Monthly Limit (Hours):" value="${user.MonthlyLimitHours || 80}" />
+                        </div>
+                         <div class="inputContainer">
+                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-enable-yearly" ${user.EnableYearlyLimit ? 'checked' : ''} /><span>Enable Yearly Limit</span></label>
+                             <input is="emby-input" class="edit-yearly-hours" type="number" label="Yearly Limit (Hours):" value="${user.YearlyLimitHours || 0}" />
+                        </div>
+                    </div>
+
+                    <!-- Reset Schedule Tab -->
+                    <div id="tab-schedule" class="user-editor-tab-content hide">
+                        <div class="inputContainer">
+                            <select is="emby-select" class="edit-reset-time" label="Reset Time of Day:">${timeOptions}</select>
+                            <div class="fieldDescription">This time applies to all daily, weekly, monthly, and yearly resets.</div>
+                        </div>
+                        <hr style="margin: 1.5em 0; border-color: #444;" />
+                        <div class="inputContainer"><select is="emby-select" class="edit-weekly-reset-day" label="Weekly Reset Day:">${weekDayOptions}</select></div>
+                        <div class="inputContainer"><select is="emby-select" class="edit-monthly-reset-day" label="Monthly Reset Day:">${monthDayOptions}</select></div>
+                        <div style="display: flex; gap: 1em;">
+                            <div class="inputContainer" style="flex-grow:1;"><select is="emby-select" class="edit-yearly-reset-month" label="Yearly Reset Month:">${monthOptions}</select></div>
+                            <div class="inputContainer" style="flex-grow:1;"><select is="emby-select" class="edit-yearly-reset-day" label="Yearly Reset Day:">${yearDayOptions}</select></div>
+                        </div>
+                    </div>
+
+                    <!-- Time Window Tab -->
+                    <div id="tab-window" class="user-editor-tab-content hide">
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" class="edit-enable-time-window" ${user.EnableTimeWindow ? 'checked' : ''} /><span>Restrict playback to a specific time window</span></label>
+                        </div>
+                        <div class="time-window-container" style="display: flex; gap: 1em;">
+                            <div class="inputContainer" style="flex-grow: 1;"><select is="emby-select" class="edit-window-start" label="From:">${timeOptions}</select></div>
+                            <div class="inputContainer" style="flex-grow: 1;"><select is="emby-select" class="edit-window-end" label="To:">${timeOptions}</select></div>
+                        </div>
+                    </div>
+
+                    <!-- Notifications Tab -->
+                    <div id="tab-notifications" class="user-editor-tab-content hide">
+                         <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" class="edit-enable-threshold-notifications" ${user.EnableThresholdNotifications ? 'checked' : ''} /><span>Enable notifications when nearing a limit</span></label>
+                         </div>
+                         <div class="inputContainer">
+                            <input is="emby-input" class="edit-notification-thresholds" type="text" label="Notification Thresholds (%):" value="${user.NotificationThresholds || '80,95'}" />
+                            <div class="fieldDescription">Comma-separated list of percentages (e.g., 50, 80, 95).</div>
+                         </div>
+                    </div>
+
+                    <div class="user-editor-buttons">
+                       <button is="emby-button" type="button" class="raised button-submit btn-save-user-inline" data-userid="${user.UserId}"><span>Save User</span></button>
+                       <button is="emby-button" type="button" class="raised button-cancel btn-cancel-edit-user" data-userid="${user.UserId}"><span>Cancel</span></button>
+                    </div>
+                </div>`;
         }
 
         saveUserInline(saveButton, userId) {
             const editorContainer = saveButton.closest('.user-editor');
             if (!editorContainer) return;
 
-            const minutes = parseInt(editorContainer.querySelector('.edit-watch-time').value);
-            if (!minutes || minutes <= 0) {
-                toast({ type: 'error', text: 'Please enter a valid time limit.' });
-                return;
-            }
-
             const userData = {
-                WatchTimeLimitMinutes: minutes,
-                IsEnabled: true,
-                WatchTimeResetType: editorContainer.querySelector('.edit-reset-type').value,
-                WatchTimeResetIntervalMinutes: parseInt(editorContainer.querySelector('.edit-reset-minutes').value) || 1440,
-                WatchTimeResetTimeOfDayHours: parseFloat(editorContainer.querySelector('.edit-reset-hour').value) || 3,
-                WatchTimeResetDayOfWeek: parseInt(editorContainer.querySelector('.edit-reset-day').value) || 0,
+                EnableDailyLimit: editorContainer.querySelector('.edit-enable-daily').checked,
+                DailyLimitMinutes: parseInt(editorContainer.querySelector('.edit-daily-minutes').value) || 0,
+                EnableWeeklyLimit: editorContainer.querySelector('.edit-enable-weekly').checked,
+                WeeklyLimitHours: parseInt(editorContainer.querySelector('.edit-weekly-hours').value) || 0,
+                EnableMonthlyLimit: editorContainer.querySelector('.edit-enable-monthly').checked,
+                MonthlyLimitHours: parseInt(editorContainer.querySelector('.edit-monthly-hours').value) || 0,
+                EnableYearlyLimit: editorContainer.querySelector('.edit-enable-yearly').checked,
+                YearlyLimitHours: parseInt(editorContainer.querySelector('.edit-yearly-hours').value) || 0,
+
+                ResetTimeOfDayHours: parseFloat(editorContainer.querySelector('.edit-reset-time').value),
+                WeeklyResetDay: parseInt(editorContainer.querySelector('.edit-weekly-reset-day').value),
+                MonthlyResetDay: parseInt(editorContainer.querySelector('.edit-monthly-reset-day').value),
+                YearlyResetMonth: parseInt(editorContainer.querySelector('.edit-yearly-reset-month').value),
+                YearlyResetDay: parseInt(editorContainer.querySelector('.edit-yearly-reset-day').value),
+
+                EnableThresholdNotifications: editorContainer.querySelector('.edit-enable-threshold-notifications').checked,
+                NotificationThresholds: editorContainer.querySelector('.edit-notification-thresholds').value,
+
                 EnableTimeWindow: editorContainer.querySelector('.edit-enable-time-window').checked,
                 WatchWindowStartHour: parseFloat(editorContainer.querySelector('.edit-window-start').value),
                 WatchWindowEndHour: parseFloat(editorContainer.querySelector('.edit-window-end').value)
@@ -386,12 +418,12 @@
                 const selectedOption = userSelect.options[userSelect.selectedIndex];
                 userData.UserId = selectedOption.value;
                 userData.Username = selectedOption.getAttribute('data-username');
+                userData.IsEnabled = true;
                 this.config.LimitedUsers.push(userData);
                 toast(`User ${userData.Username} added. Save all changes to apply.`);
             } else {
                 const userToUpdate = this.config.LimitedUsers.find(u => u.UserId === userId);
                 if (userToUpdate) {
-                    userData.IsEnabled = userToUpdate.IsEnabled; // Preserve existing enabled state
                     Object.assign(userToUpdate, userData);
                     toast(`User ${userToUpdate.Username} updated. Save all changes to apply.`);
                 }
@@ -414,7 +446,7 @@
                 const usersToRender = [...config.LimitedUsers];
 
                 if (this.editingUserId === newUserId) {
-                    usersToRender.unshift({ UserId: newUserId });
+                    usersToRender.unshift({ UserId: newUserId, EnableDailyLimit: true, DailyLimitMinutes: 120, NotificationThresholds: '80,95', ResetTimeOfDayHours: 3, WeeklyResetDay: 0, MonthlyResetDay: 1, YearlyResetMonth: 1, YearlyResetDay: 1 });
                 }
 
                 if (usersToRender.length === 0) {
@@ -434,24 +466,16 @@
                 if (this.editingUserId) {
                     const editor = container.querySelector('.user-editor');
                     if (editor) {
-                        const user = this.config.LimitedUsers.find(u => u.UserId === this.editingUserId) || {};
+                        const user = config.LimitedUsers.find(u => u.UserId === this.editingUserId) || usersToRender[0];
 
-                        const resetTypeSelect = editor.querySelector('.edit-reset-type');
-                        resetTypeSelect.value = user.WatchTimeResetType || 'Daily';
-
-                        editor.querySelector('.edit-reset-hour').value = user.WatchTimeResetTimeOfDayHours || 3;
-                        editor.querySelector('.edit-reset-day').value = user.WatchTimeResetDayOfWeek || 0;
+                        // Set values for selects
+                        editor.querySelector('.edit-reset-time').value = user.ResetTimeOfDayHours || 3;
+                        editor.querySelector('.edit-weekly-reset-day').value = user.WeeklyResetDay || 0;
+                        editor.querySelector('.edit-monthly-reset-day').value = user.MonthlyResetDay || 1;
+                        editor.querySelector('.edit-yearly-reset-month').value = user.YearlyResetMonth || 1;
+                        editor.querySelector('.edit-yearly-reset-day').value = user.YearlyResetDay || 1;
                         editor.querySelector('.edit-window-start').value = user.WatchWindowStartHour || 0;
                         editor.querySelector('.edit-window-end').value = user.WatchWindowEndHour || 23.5;
-
-                        const updateResetFields = () => {
-                            const resetType = resetTypeSelect.value;
-                            editor.querySelector('.edit-reset-minutes').closest('.inputContainer').classList.toggle('hide', resetType !== 'Minutes');
-                            editor.querySelector('.edit-reset-hour').closest('.inputContainer').classList.toggle('hide', resetType !== 'Daily' && resetType !== 'Weekly');
-                            editor.querySelector('.edit-reset-day').closest('.inputContainer').classList.toggle('hide', resetType !== 'Weekly');
-                        };
-                        resetTypeSelect.addEventListener('change', updateResetFields);
-                        updateResetFields();
 
                         const timeWindowCheckbox = editor.querySelector('.edit-enable-time-window');
                         const timeWindowContainer = editor.querySelector('.time-window-container');
@@ -465,6 +489,7 @@
             });
         }
 
+        // loadData, saveData, onResume, onPause, and destroy methods remain unchanged from previous version...
         loadData(view) {
             loading.show();
             getPluginConfiguration().then(config => {
