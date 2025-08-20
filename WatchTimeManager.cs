@@ -172,6 +172,7 @@ namespace WatchingEye
             if (now >= lastDailyTrigger && userData.LastDailyReset < lastDailyTrigger)
             {
                 userData.WatchedTimeTicksDaily = 0;
+                userData.TimeCreditTicksDaily = 0;
                 userData.LastDailyReset = now;
                 _dailyThresholdsNotified.TryRemove(userConfig.UserId, out _);
                 needsOverallReset = true;
@@ -183,6 +184,7 @@ namespace WatchingEye
             if (now >= lastWeeklyTrigger && userData.LastWeeklyReset < lastWeeklyTrigger)
             {
                 userData.WatchedTimeTicksWeekly = 0;
+                userData.TimeCreditTicksWeekly = 0;
                 userData.LastWeeklyReset = now;
                 _weeklyThresholdsNotified.TryRemove(userConfig.UserId, out _);
                 needsOverallReset = true;
@@ -201,6 +203,7 @@ namespace WatchingEye
                 if (now >= lastMonthlyTrigger && userData.LastMonthlyReset < lastMonthlyTrigger)
                 {
                     userData.WatchedTimeTicksMonthly = 0;
+                    userData.TimeCreditTicksMonthly = 0;
                     userData.LastMonthlyReset = now;
                     _monthlyThresholdsNotified.TryRemove(userConfig.UserId, out _);
                     needsOverallReset = true;
@@ -217,6 +220,7 @@ namespace WatchingEye
                 if (now >= lastYearlyTrigger && userData.LastYearlyReset < lastYearlyTrigger)
                 {
                     userData.WatchedTimeTicksYearly = 0;
+                    userData.TimeCreditTicksYearly = 0;
                     userData.LastYearlyReset = now;
                     _yearlyThresholdsNotified.TryRemove(userConfig.UserId, out _);
                     needsOverallReset = true;
@@ -257,16 +261,16 @@ namespace WatchingEye
             if (!thresholds.Any()) return;
 
             if (userConfig.EnableDailyLimit && userConfig.DailyLimitMinutes > 0)
-                CheckAndSendThresholdNotification(session, "daily", TimeSpan.FromMinutes(userConfig.DailyLimitMinutes), TimeSpan.FromTicks(userData.WatchedTimeTicksDaily), thresholds, _dailyThresholdsNotified);
+                CheckAndSendThresholdNotification(session, "daily", TimeSpan.FromMinutes(userConfig.DailyLimitMinutes).Add(TimeSpan.FromTicks(userData.TimeCreditTicksDaily)), TimeSpan.FromTicks(userData.WatchedTimeTicksDaily), thresholds, _dailyThresholdsNotified);
 
             if (userConfig.EnableWeeklyLimit && userConfig.WeeklyLimitHours > 0)
-                CheckAndSendThresholdNotification(session, "weekly", TimeSpan.FromHours(userConfig.WeeklyLimitHours), TimeSpan.FromTicks(userData.WatchedTimeTicksWeekly), thresholds, _weeklyThresholdsNotified);
+                CheckAndSendThresholdNotification(session, "weekly", TimeSpan.FromHours(userConfig.WeeklyLimitHours).Add(TimeSpan.FromTicks(userData.TimeCreditTicksWeekly)), TimeSpan.FromTicks(userData.WatchedTimeTicksWeekly), thresholds, _weeklyThresholdsNotified);
 
             if (userConfig.EnableMonthlyLimit && userConfig.MonthlyLimitHours > 0)
-                CheckAndSendThresholdNotification(session, "monthly", TimeSpan.FromHours(userConfig.MonthlyLimitHours), TimeSpan.FromTicks(userData.WatchedTimeTicksMonthly), thresholds, _monthlyThresholdsNotified);
+                CheckAndSendThresholdNotification(session, "monthly", TimeSpan.FromHours(userConfig.MonthlyLimitHours).Add(TimeSpan.FromTicks(userData.TimeCreditTicksMonthly)), TimeSpan.FromTicks(userData.WatchedTimeTicksMonthly), thresholds, _monthlyThresholdsNotified);
 
             if (userConfig.EnableYearlyLimit && userConfig.YearlyLimitHours > 0)
-                CheckAndSendThresholdNotification(session, "yearly", TimeSpan.FromHours(userConfig.YearlyLimitHours), TimeSpan.FromTicks(userData.WatchedTimeTicksYearly), thresholds, _yearlyThresholdsNotified);
+                CheckAndSendThresholdNotification(session, "yearly", TimeSpan.FromHours(userConfig.YearlyLimitHours).Add(TimeSpan.FromTicks(userData.TimeCreditTicksYearly)), TimeSpan.FromTicks(userData.WatchedTimeTicksYearly), thresholds, _yearlyThresholdsNotified);
         }
 
         private static void CheckAndSendThresholdNotification(SessionInfo session, string period, TimeSpan limit, TimeSpan watched, List<int> thresholds, ConcurrentDictionary<string, HashSet<int>> notifiedDict)
@@ -302,16 +306,16 @@ namespace WatchingEye
 
             var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
 
-            if (limitedUser.EnableDailyLimit && limitedUser.DailyLimitMinutes > 0 && TimeSpan.FromTicks(userData.WatchedTimeTicksDaily) >= TimeSpan.FromMinutes(limitedUser.DailyLimitMinutes))
+            if (limitedUser.EnableDailyLimit && limitedUser.DailyLimitMinutes > 0 && userData.WatchedTimeTicksDaily >= (TimeSpan.FromMinutes(limitedUser.DailyLimitMinutes).Ticks + userData.TimeCreditTicksDaily))
                 return PlaybackBlockReason.TimeLimitExceeded;
 
-            if (limitedUser.EnableWeeklyLimit && limitedUser.WeeklyLimitHours > 0 && TimeSpan.FromTicks(userData.WatchedTimeTicksWeekly) >= TimeSpan.FromHours(limitedUser.WeeklyLimitHours))
+            if (limitedUser.EnableWeeklyLimit && limitedUser.WeeklyLimitHours > 0 && userData.WatchedTimeTicksWeekly >= (TimeSpan.FromHours(limitedUser.WeeklyLimitHours).Ticks + userData.TimeCreditTicksWeekly))
                 return PlaybackBlockReason.TimeLimitExceeded;
 
-            if (limitedUser.EnableMonthlyLimit && limitedUser.MonthlyLimitHours > 0 && TimeSpan.FromTicks(userData.WatchedTimeTicksMonthly) >= TimeSpan.FromHours(limitedUser.MonthlyLimitHours))
+            if (limitedUser.EnableMonthlyLimit && limitedUser.MonthlyLimitHours > 0 && userData.WatchedTimeTicksMonthly >= (TimeSpan.FromHours(limitedUser.MonthlyLimitHours).Ticks + userData.TimeCreditTicksMonthly))
                 return PlaybackBlockReason.TimeLimitExceeded;
 
-            if (limitedUser.EnableYearlyLimit && limitedUser.YearlyLimitHours > 0 && TimeSpan.FromTicks(userData.WatchedTimeTicksYearly) >= TimeSpan.FromHours(limitedUser.YearlyLimitHours))
+            if (limitedUser.EnableYearlyLimit && limitedUser.YearlyLimitHours > 0 && userData.WatchedTimeTicksYearly >= (TimeSpan.FromHours(limitedUser.YearlyLimitHours).Ticks + userData.TimeCreditTicksYearly))
                 return PlaybackBlockReason.TimeLimitExceeded;
 
             return PlaybackBlockReason.Allowed;
@@ -391,10 +395,10 @@ namespace WatchingEye
                 {
                     UserId = limitedUser.UserId,
                     Username = limitedUser.Username,
-                    DailyLimitMinutes = limitedUser.DailyLimitMinutes,
-                    WeeklyLimitHours = limitedUser.WeeklyLimitHours,
-                    MonthlyLimitHours = limitedUser.MonthlyLimitHours,
-                    YearlyLimitHours = limitedUser.YearlyLimitHours,
+                    DailyLimitMinutes = limitedUser.DailyLimitMinutes + (int)TimeSpan.FromTicks(userData.TimeCreditTicksDaily).TotalMinutes,
+                    WeeklyLimitHours = limitedUser.WeeklyLimitHours + (int)TimeSpan.FromTicks(userData.TimeCreditTicksWeekly).TotalHours,
+                    MonthlyLimitHours = limitedUser.MonthlyLimitHours + (int)TimeSpan.FromTicks(userData.TimeCreditTicksMonthly).TotalHours,
+                    YearlyLimitHours = limitedUser.YearlyLimitHours + (int)TimeSpan.FromTicks(userData.TimeCreditTicksYearly).TotalHours,
                     SecondsWatchedDaily = TimeSpan.FromTicks(userData.WatchedTimeTicksDaily).TotalSeconds,
                     SecondsWatchedWeekly = TimeSpan.FromTicks(userData.WatchedTimeTicksWeekly).TotalSeconds,
                     SecondsWatchedMonthly = TimeSpan.FromTicks(userData.WatchedTimeTicksMonthly).TotalSeconds,
@@ -408,12 +412,12 @@ namespace WatchingEye
         {
             if (!_userWatchData.TryGetValue(userId, out var userData)) return;
 
-            var timeToSubtract = TimeSpan.FromMinutes(minutesToExtend);
+            var timeCreditToAdd = TimeSpan.FromMinutes(minutesToExtend);
 
-            userData.WatchedTimeTicksDaily = Math.Max(0, userData.WatchedTimeTicksDaily - timeToSubtract.Ticks);
-            userData.WatchedTimeTicksWeekly = Math.Max(0, userData.WatchedTimeTicksWeekly - timeToSubtract.Ticks);
-            userData.WatchedTimeTicksMonthly = Math.Max(0, userData.WatchedTimeTicksMonthly - timeToSubtract.Ticks);
-            userData.WatchedTimeTicksYearly = Math.Max(0, userData.WatchedTimeTicksYearly - timeToSubtract.Ticks);
+            userData.TimeCreditTicksDaily += timeCreditToAdd.Ticks;
+            userData.TimeCreditTicksWeekly += timeCreditToAdd.Ticks;
+            userData.TimeCreditTicksMonthly += timeCreditToAdd.Ticks;
+            userData.TimeCreditTicksYearly += timeCreditToAdd.Ticks;
 
             _limitReachedNotified.TryRemove(userId, out _);
             SaveWatchTimeData();
@@ -424,9 +428,14 @@ namespace WatchingEye
             if (_userWatchData.TryGetValue(userId, out var userData))
             {
                 userData.WatchedTimeTicksDaily = 0;
+                userData.TimeCreditTicksDaily = 0;
                 userData.WatchedTimeTicksWeekly = 0;
+                userData.TimeCreditTicksWeekly = 0;
                 userData.WatchedTimeTicksMonthly = 0;
+                userData.TimeCreditTicksMonthly = 0;
                 userData.WatchedTimeTicksYearly = 0;
+                userData.TimeCreditTicksYearly = 0;
+
                 _limitReachedNotified.TryRemove(userId, out _);
                 _dailyThresholdsNotified.TryRemove(userId, out _);
                 _weeklyThresholdsNotified.TryRemove(userId, out _);
