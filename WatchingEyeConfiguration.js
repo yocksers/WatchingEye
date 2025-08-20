@@ -25,7 +25,6 @@
     }
 
     function renderLogs(view) {
-        // Implementation remains the same as previous version...
         const container = view.querySelector('#logContainer');
         getLogEvents().then(events => {
             if (events.length === 0) {
@@ -53,7 +52,6 @@
     }
 
     function formatTime(hoursDouble) {
-        // Implementation remains the same as previous version...
         if (hoursDouble === null || typeof hoursDouble === 'undefined') return '';
         const hours = Math.floor(hoursDouble);
         const minutes = Math.round((hoursDouble % 1) * 60);
@@ -73,7 +71,6 @@
                 this.allUsers = users;
             });
 
-            // Event listeners remain the same as previous version...
             view.querySelector('.watchingEyeForm').addEventListener('submit', (e) => {
                 e.preventDefault();
                 if (this.editingUserId) {
@@ -489,7 +486,6 @@
             });
         }
 
-        // loadData, saveData, onResume, onPause, and destroy methods remain unchanged from previous version...
         loadData(view) {
             loading.show();
             getPluginConfiguration().then(config => {
