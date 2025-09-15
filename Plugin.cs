@@ -1,9 +1,10 @@
-﻿﻿using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Controller.Notifications;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Drawing;
@@ -20,13 +21,14 @@ namespace WatchingEye
         private readonly ILogger _logger;
         private readonly IJsonSerializer _jsonSerializer;
         private readonly IApplicationPaths _appPaths;
+        private readonly INotificationManager _notificationManager;
         public static Plugin? Instance { get; private set; }
 
         public override string Name => "Watching Eye";
         public override string Description => "A plugin to monitor and limit user watch time, with optional transcode notifications.";
         public override Guid Id => Guid.Parse("e8c3b1b3-4f56-4f38-a28a-2e6c5a043007");
 
-        public Plugin(IApplicationPaths appPaths, IXmlSerializer xmlSerializer, ISessionManager sessionManager, ILogManager logManager, IJsonSerializer jsonSerializer)
+        public Plugin(IApplicationPaths appPaths, IXmlSerializer xmlSerializer, ISessionManager sessionManager, ILogManager logManager, IJsonSerializer jsonSerializer, INotificationManager notificationManager)
             : base(appPaths, xmlSerializer)
         {
             Instance = this;
@@ -34,6 +36,7 @@ namespace WatchingEye
             _logger = logManager.GetLogger(GetType().Name);
             _jsonSerializer = jsonSerializer;
             _appPaths = appPaths;
+            _notificationManager = notificationManager;
         }
 
         public IEnumerable<PluginPageInfo> GetPages()
@@ -58,6 +61,7 @@ namespace WatchingEye
             TranscodeMonitor.Start(_sessionManager, _logger);
             WatchTimeManager.Start(_sessionManager, _logger, _appPaths, _jsonSerializer);
             LogManager.Start(_logger, _jsonSerializer, _appPaths);
+            NotificationService.Start(_logger, _notificationManager);
         }
 
         public void Dispose()
@@ -65,6 +69,7 @@ namespace WatchingEye
             TranscodeMonitor.Stop();
             WatchTimeManager.Stop();
             LogManager.Stop();
+            NotificationService.Stop();
         }
 
         public Stream GetThumbImage()

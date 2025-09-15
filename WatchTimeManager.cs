@@ -287,6 +287,12 @@ namespace WatchingEye
                     var message = $"Watch Time Warning: You have used over {threshold}% of your {period} limit.";
                     SendNotificationAsync(session, "Watch Time Warning", message, 10000).GetAwaiter().GetResult();
                     notifiedForUser.Add(threshold);
+
+                    var config = Plugin.Instance?.Configuration;
+                    if (config != null && config.EnableWatchLimitNotifications && !string.IsNullOrEmpty(session.UserName))
+                    {
+                        NotificationService.SendThresholdNotification(session.UserName, period, threshold);
+                    }
                 }
             }
         }
@@ -353,6 +359,11 @@ namespace WatchingEye
                     {
                         var clientNames = string.Join(", ", allUserSessions.Select(s => s.Client).Distinct());
                         LogManager.LogLimitReached(userId, username, clientNames);
+
+                        if (config.EnableWatchLimitNotifications)
+                        {
+                            NotificationService.SendLimitReachedNotification(username, clientNames);
+                        }
                     }
                     break;
                 case PlaybackBlockReason.OutsideTimeWindow:

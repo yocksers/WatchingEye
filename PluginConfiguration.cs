@@ -87,6 +87,7 @@ namespace WatchingEye
         public string ExcludedClients { get; set; } = string.Empty;
 
         public bool EnableWatchTimeLimiter { get; set; } = false;
+        public bool EnableWatchLimitNotifications { get; set; } = false;
         public List<LimitedUser> LimitedUsers { get; set; } = new List<LimitedUser>();
         public string WatchTimeLimitMessageText { get; set; } = "You have reached your watch time limit. Playback is now disabled until the timer resets.";
         public string TimeWindowBlockedMessageText { get; set; } = "Playback is not allowed at this time. Please try again during your allowed watch window.";

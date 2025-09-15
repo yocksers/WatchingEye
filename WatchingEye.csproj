@@ -5,13 +5,12 @@
 		<AssemblyName>WatchingEye</AssemblyName>
 		<OutputType>Library</OutputType>
 
-		<!-- This enables modern C# features and nullable support -->
 		<LangVersion>10.0</LangVersion>
 		<Nullable>enable</Nullable>
 
 		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-		<AssemblyVersion>1.0.9.0</AssemblyVersion>
-		<FileVersion>1.0.9.0</FileVersion>
+		<AssemblyVersion>1.1.0.0</AssemblyVersion>
+		<FileVersion>1.1.0.0</FileVersion>
 		<RootNamespace>WatchingEye</RootNamespace>
 	</PropertyGroup>
 
