@@ -292,7 +292,6 @@
                 userSelectHtml = `<input is="emby-input" id="txtUsername" type="text" label="User:" value="${user.Username}" readonly />`;
             }
 
-            // Generate options for select dropdowns
             const timeOptions = Array.from({ length: 48 }, (_, i) => `<option value="${i / 2}">${String(Math.floor(i / 2)).padStart(2, '0')}:${String((i % 2) * 30).padStart(2, '0')}</option>`).join('');
             const weekDayOptions = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, i) => `<option value="${i}">${day}</option>`).join('');
             const monthDayOptions = Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
@@ -465,7 +464,6 @@
                     if (editor) {
                         const user = config.LimitedUsers.find(u => u.UserId === this.editingUserId) || usersToRender[0];
 
-                        // Set values for selects
                         editor.querySelector('.edit-reset-time').value = user.ResetTimeOfDayHours || 3;
                         editor.querySelector('.edit-weekly-reset-day').value = user.WeeklyResetDay || 0;
                         editor.querySelector('.edit-monthly-reset-day').value = user.MonthlyResetDay || 1;
@@ -527,7 +525,6 @@
             updatePluginConfiguration(this.config).then(result => {
                 loading.hide();
                 Dashboard.processPluginConfigurationUpdateResult(result);
-                toast('Settings saved.');
                 this.loadData(view);
             }).catch(() => {
                 loading.hide();

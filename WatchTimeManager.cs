@@ -111,38 +111,55 @@ namespace WatchingEye
                     s.PlayState is { IsPaused: false }
                 ).ToList();
 
-                foreach (var session in activeLimitedSessions)
-                {
-                    var userConfig = limitedUsersMap[session.UserId];
-
-                    if (userConfig.EnableTimeWindow && IsOutsideTimeWindow(userConfig, now))
+                var activeUsers = activeLimitedSessions
+                    .GroupBy(s => s.UserId)
+                    .Select(g => new
                     {
-                        StopPlaybackForUser(session.UserId, PlaybackBlockReason.OutsideTimeWindow).GetAwaiter().GetResult();
+                        UserId = g.Key,
+                        UserConfig = limitedUsersMap[g.Key],
+                        Sessions = g.ToList()
+                    });
+
+                foreach (var user in activeUsers)
+                {
+                    if (user.UserConfig.EnableTimeWindow && IsOutsideTimeWindow(user.UserConfig, now))
+                    {
+                        StopPlaybackForUser(user.UserId, PlaybackBlockReason.OutsideTimeWindow).GetAwaiter().GetResult();
                         continue;
                     }
 
-                    var lastUpdate = _sessionLastUpdate.GetOrAdd(session.Id, now);
-                    var timeToAdd = now - lastUpdate;
-
-                    if (timeToAdd > TimeSpan.Zero)
+                    bool timeWasAdded = false;
+                    foreach (var session in user.Sessions)
                     {
-                        var userData = _userWatchData.GetOrAdd(session.UserId, new UserWatchData { UserId = session.UserId });
-                        userData.WatchedTimeTicksDaily += timeToAdd.Ticks;
-                        userData.WatchedTimeTicksWeekly += timeToAdd.Ticks;
-                        userData.WatchedTimeTicksMonthly += timeToAdd.Ticks;
-                        userData.WatchedTimeTicksYearly += timeToAdd.Ticks;
-                        dataChanged = true;
+                        var lastUpdate = _sessionLastUpdate.GetOrAdd(session.Id, now);
+                        var timeToAdd = now - lastUpdate;
 
-                        if (GetPlaybackBlockReason(session.UserId) == PlaybackBlockReason.TimeLimitExceeded)
+                        if (timeToAdd > TimeSpan.Zero)
                         {
-                            StopPlaybackForUser(session.UserId, PlaybackBlockReason.TimeLimitExceeded).GetAwaiter().GetResult();
+                            var userData = _userWatchData.GetOrAdd(user.UserId, new UserWatchData { UserId = user.UserId });
+                            userData.WatchedTimeTicksDaily += timeToAdd.Ticks;
+                            userData.WatchedTimeTicksWeekly += timeToAdd.Ticks;
+                            userData.WatchedTimeTicksMonthly += timeToAdd.Ticks;
+                            userData.WatchedTimeTicksYearly += timeToAdd.Ticks;
+                            dataChanged = true;
+                            timeWasAdded = true;
+                        }
+                        _sessionLastUpdate.AddOrUpdate(session.Id, now, (k, v) => now);
+                    }
+
+                    if (timeWasAdded)
+                    {
+                        if (GetPlaybackBlockReason(user.UserId) == PlaybackBlockReason.TimeLimitExceeded)
+                        {
+                            StopPlaybackForUser(user.UserId, PlaybackBlockReason.TimeLimitExceeded).GetAwaiter().GetResult();
                         }
                         else
                         {
-                            ProcessThresholdNotifications(session, userConfig, userData);
+                            var userData = _userWatchData.GetOrAdd(user.UserId, new UserWatchData { UserId = user.UserId });
+                            var representativeSession = user.Sessions.First();
+                            ProcessThresholdNotifications(representativeSession, user.UserConfig, userData);
                         }
                     }
-                    _sessionLastUpdate.AddOrUpdate(session.Id, now, (k, v) => now);
                 }
 
                 if (dataChanged)
@@ -212,7 +229,6 @@ namespace WatchingEye
             catch (Exception ex) { _logger?.ErrorException("Error calculating monthly reset for user {0}", ex, userConfig.Username); }
 
 
-            // --- Yearly Reset ---
             try
             {
                 DateTime lastYearlyTrigger = new DateTime(now.Year, userConfig.YearlyResetMonth, userConfig.YearlyResetDay).AddHours(userConfig.ResetTimeOfDayHours);
