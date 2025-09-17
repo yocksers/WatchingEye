@@ -60,7 +60,6 @@ namespace WatchingEye
                 _directPlayNotificationsSent.TryRemove(session.Id, out _);
                 _playbackStartNotificationsSent.TryRemove(session.Id, out _);
 
-                // Notify WatchTimeManager that the session has ended to clean up tracking
                 WatchTimeManager.OnSessionStopped(session.Id);
             }
         }
@@ -80,26 +79,15 @@ namespace WatchingEye
                     var blockReason = WatchTimeManager.GetPlaybackBlockReason(session.UserId);
                     if (blockReason != PlaybackBlockReason.Allowed)
                     {
-                        // Use Task.Run to avoid blocking the event handler
                         _ = Task.Run(() => WatchTimeManager.StopPlaybackForUser(session.UserId, blockReason));
                         return;
                     }
                 }
 
-                var excludedUsers = (config.ExcludedUserNames ?? string.Empty)
-                    .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(u => u.Trim())
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-                if (excludedUsers.Contains(session.UserName))
+                if (config.ExcludedUserIds.Contains(session.UserId))
                     return;
 
-                var excludedClients = (config.ExcludedClients ?? string.Empty)
-                    .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(c => c.Trim())
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-                if (excludedClients.Contains(session.Client))
+                if (config.ExcludedClients.Contains(session.Client, StringComparer.OrdinalIgnoreCase))
                     return;
 
                 _ = Task.Run(async () =>
@@ -148,10 +136,11 @@ namespace WatchingEye
             if (!config.NotifyOnAudioOnlyTranscode && session.TranscodingInfo.IsVideoDirect && !session.TranscodingInfo.IsAudioDirect)
                 return;
 
-            var transcodeReasons = string.Join(", ", session.TranscodingInfo.TranscodeReasons);
-            var message = config.MessageText.Replace("{reason}", transcodeReasons);
+            var rawTranscodeReasons = string.Join(", ", session.TranscodingInfo.TranscodeReasons);
+            var friendlyReasons = TranscodeReasonParser.Parse(rawTranscodeReasons);
+            var message = config.MessageText.Replace("{reason}", friendlyReasons);
 
-            LogManager.LogTranscode(session, transcodeReasons);
+            LogManager.LogTranscode(session, friendlyReasons);
 
             await SendNotificationAsync(session, "Transcode Warning", message, config.InitialDelaySeconds,
                 config.MaxNotifications, config.DelayBetweenMessagesSeconds, config.EnableConfirmationButton, _transcodeNotificationsSent);

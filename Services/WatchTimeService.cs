@@ -1,4 +1,4 @@
-﻿using MediaBrowser.Model.Services;
+﻿﻿using MediaBrowser.Model.Services;
 using System.Collections.Generic;
 using System.Linq;
 using WatchingEye.Api;
@@ -38,6 +38,23 @@ namespace WatchingEye.Services
     public class ClearLogsRequest : IReturnVoid { }
 
 
+    [Route(ApiRoutes.TimeOutUser, "POST", Summary = "Temporarily blocks a user from playback.")]
+    public class TimeOutUserRequest : IReturnVoid
+    {
+        public string UserId { get; set; } = string.Empty;
+        public int Minutes { get; set; }
+    }
+
+    [Route(ApiRoutes.ClearTimeOut, "POST", Summary = "Clears an active time-out for a user.")]
+    public class ClearTimeOutRequest : IReturnVoid
+    {
+        public string UserId { get; set; } = string.Empty;
+    }
+
+    [Route(ApiRoutes.GetClientList, "GET", Summary = "Gets a list of unique client names from the logs.")]
+    public class GetClientListRequest : IReturn<List<string>> { }
+
+
     public class LimitedUserStatus
     {
         public string UserId { get; set; } = string.Empty;
@@ -52,6 +69,8 @@ namespace WatchingEye.Services
         public double SecondsWatchedWeekly { get; set; }
         public double SecondsWatchedMonthly { get; set; }
         public double SecondsWatchedYearly { get; set; }
+
+        public DateTime TimeOutUntil { get; set; }
     }
 
     public class WatchTimeService : IService
@@ -83,6 +102,27 @@ namespace WatchingEye.Services
                 user.IsEnabled = !user.IsEnabled;
                 plugin.UpdateConfiguration(config);
             }
+        }
+
+        public void Post(TimeOutUserRequest request)
+        {
+            if (!string.IsNullOrEmpty(request.UserId) && request.Minutes > 0)
+            {
+                WatchTimeManager.TimeOutUser(request.UserId, request.Minutes);
+            }
+        }
+
+        public void Post(ClearTimeOutRequest request)
+        {
+            if (!string.IsNullOrEmpty(request.UserId))
+            {
+                WatchTimeManager.ClearTimeOutForUser(request.UserId);
+            }
+        }
+
+        public object Get(GetClientListRequest request)
+        {
+            return LogManager.GetDistinctClientNames();
         }
 
         public void Post(ResetUserTimeRequest request)

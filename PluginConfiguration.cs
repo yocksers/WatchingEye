@@ -1,4 +1,4 @@
-﻿using MediaBrowser.Model.Plugins;
+﻿﻿using MediaBrowser.Model.Plugins;
 using System;
 using System.Collections.Generic;
 
@@ -22,14 +22,14 @@ namespace WatchingEye
         public bool EnableYearlyLimit { get; set; } = false;
         public int YearlyLimitHours { get; set; } = 0;
 
-        public double ResetTimeOfDayHours { get; set; } = 3; // e.g., 3.0 for 3:00 AM
+        public double ResetTimeOfDayHours { get; set; } = 3; 
         public DayOfWeek WeeklyResetDay { get; set; } = DayOfWeek.Sunday;
         public int MonthlyResetDay { get; set; } = 1;
         public int YearlyResetMonth { get; set; } = 1;
         public int YearlyResetDay { get; set; } = 1;
 
         public bool EnableThresholdNotifications { get; set; } = false;
-        public string NotificationThresholds { get; set; } = "80,95"; // Comma-separated percentages
+        public string NotificationThresholds { get; set; } = "80,95"; 
 
         public bool EnableTimeWindow { get; set; } = false;
         public double WatchWindowStartHour { get; set; } = 0;
@@ -53,6 +53,8 @@ namespace WatchingEye
         public DateTime LastWeeklyReset { get; set; }
         public DateTime LastMonthlyReset { get; set; }
         public DateTime LastYearlyReset { get; set; }
+
+        public DateTime TimeOutUntil { get; set; }
 
         public long WatchedTimeTicks { get; set; }
         public DateTime LastResetTime { get; set; }
@@ -83,18 +85,21 @@ namespace WatchingEye
         public int PlaybackStartDelayBetweenMessagesSeconds { get; set; } = 5;
 
         public bool EnableConfirmationButton { get; set; } = false;
-        public string ExcludedUserNames { get; set; } = string.Empty;
-        public string ExcludedClients { get; set; } = string.Empty;
+        public List<string> ExcludedUserIds { get; set; } = new List<string>();
+        public List<string> ExcludedClients { get; set; } = new List<string>();
 
         public bool EnableWatchTimeLimiter { get; set; } = false;
         public bool EnableWatchLimitNotifications { get; set; } = false;
         public List<LimitedUser> LimitedUsers { get; set; } = new List<LimitedUser>();
         public string WatchTimeLimitMessageText { get; set; } = "You have reached your watch time limit. Playback is now disabled until the timer resets.";
         public string TimeWindowBlockedMessageText { get; set; } = "Playback is not allowed at this time. Please try again during your allowed watch window.";
+        public string TimeOutMessageText { get; set; } = "You have been placed in a temporary time-out. Playback is disabled for the next {duration}.";
 
         public PluginConfiguration()
         {
             LimitedUsers = new List<LimitedUser>();
+            ExcludedUserIds = new List<string>();
+            ExcludedClients = new List<string>();
         }
     }
 }

@@ -59,7 +59,6 @@ namespace WatchingEye
         public static void LogLimitReached(string userId, string username, string clientName)
         {
             var message = "User reached their watch time limit.";
-            // Pass the dynamic clientName instead of a hardcoded value.
             AddLogEntry("Limit Reached", new SessionInfo { UserId = userId, UserName = username, Client = clientName }, message);
         }
 
@@ -87,6 +86,15 @@ namespace WatchingEye
         public static IEnumerable<LogEntry> GetLogEntries()
         {
             return _logEntries.OrderByDescending(e => e.Timestamp);
+        }
+
+        public static IEnumerable<string> GetDistinctClientNames()
+        {
+            return _logEntries
+                .Where(e => !string.IsNullOrEmpty(e.ClientName))
+                .Select(e => e.ClientName)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name);
         }
 
         public static void ClearLogs()

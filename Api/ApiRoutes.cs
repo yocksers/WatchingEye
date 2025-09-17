@@ -9,5 +9,8 @@
         public const string ResetAllUsersTime = "/WatchingEye/ResetAllUsersTime";
         public const string GetLogEvents = "/WatchingEye/GetLogEvents";
         public const string ClearLogs = "/WatchingEye/ClearLogs";
+        public const string TimeOutUser = "/WatchingEye/TimeOutUser";
+        public const string GetClientList = "/WatchingEye/GetClientList";
+        public const string ClearTimeOut = "/WatchingEye/ClearTimeOut";
     }
 }

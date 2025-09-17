@@ -1,42 +1,55 @@
-﻿define(['baseView', 'loading', 'dialogHelper', 'toast', 'emby-input', 'emby-button', 'emby-checkbox', 'emby-select'], function (BaseView, loading, dialogHelper, toast) {
-    'use strict';
+﻿    define(['baseView', 'loading', 'dialogHelper', 'toast', 'emby-input', 'emby-button', 'emby-checkbox', 'emby-select'], function (BaseView, loading, dialogHelper, toast) {
+        'use strict';
 
-    const pluginId = "e8c3b1b3-4f56-4f38-a28a-2e6c5a043007";
-    const newUserId = 'new_user_temp_id';
+        const pluginId = "e8c3b1b3-4f56-4f38-a28a-2e6c5a043007";
+        const newUserId = 'new_user_temp_id';
 
-    function getPluginConfiguration() {
-        return ApiClient.getPluginConfiguration(pluginId);
-    }
+        function getPluginConfiguration() {
+            return ApiClient.getPluginConfiguration(pluginId);
+        }
 
-    function updatePluginConfiguration(config) {
-        return ApiClient.updatePluginConfiguration(pluginId, config);
-    }
+        function updatePluginConfiguration(config) {
+            return ApiClient.updatePluginConfiguration(pluginId, config);
+        }
 
-    function getLimitedUsersStatus() {
-        return ApiClient.getJSON(ApiClient.getUrl("WatchingEye/LimitedUsersStatus"));
-    }
+        function getLimitedUsersStatus() {
+            return ApiClient.getJSON(ApiClient.getUrl("WatchingEye/LimitedUsersStatus"));
+        }
 
-    function getLogEvents() {
-        return ApiClient.getJSON(ApiClient.getUrl("WatchingEye/GetLogEvents"));
-    }
+        function getClientList() {
+            return ApiClient.getJSON(ApiClient.getUrl("WatchingEye/GetClientList"));
+        }
 
-    function clearLogs() {
-        return ApiClient.ajax({ type: "POST", url: ApiClient.getUrl("WatchingEye/ClearLogs") });
-    }
+        function getLogEvents() {
+            return ApiClient.getJSON(ApiClient.getUrl("WatchingEye/GetLogEvents"));
+        }
 
-    function renderLogs(view) {
-        const container = view.querySelector('#logContainer');
-        getLogEvents().then(events => {
-            if (events.length === 0) {
-                container.innerHTML = '<p>The event log is currently empty.</p>';
-                return;
-            }
+        function clearTimeOut(userId) {
+            return ApiClient.ajax({
+                type: "POST",
+                url: ApiClient.getUrl("WatchingEye/ClearTimeOut"),
+                data: JSON.stringify({ UserId: userId }),
+                contentType: 'application/json'
+            });
+        }
 
-            const html = events.map(entry => {
-                const eventDate = new Date(entry.Timestamp).toLocaleString();
-                const icon = entry.EventType === 'Transcode' ? 'sync_problem' : 'timer_off';
+        function clearLogs() {
+            return ApiClient.ajax({ type: "POST", url: ApiClient.getUrl("WatchingEye/ClearLogs") });
+        }
 
-                return `
+        function renderLogs(view) {
+            const container = view.querySelector('#logContainer');
+            getLogEvents().then(events => {
+                if (events.length === 0) {
+                    container.innerHTML = '<p>The event log is currently empty.</p>';
+                    return;
+                }
+
+                const html = events.map(entry => {
+                    const eventDate = new Date(entry.Timestamp).toLocaleString();
+                    const icon = entry.EventType === 'Transcode' ? 'sync_problem' : 'timer_off';
+
+                    return `
                 <div class="listItem" style="display:flex; align-items: center; padding: 0.8em 0;">
                      <i class="md-icon" style="color:#52B54B; margin-right: 1em;">${icon}</i>
                      <div class="listItemBody">
@@ -46,222 +59,273 @@
                      </div>
                 </div>
             `;
-            }).join('');
-            container.innerHTML = html;
-        });
-    }
-
-    function formatTime(hoursDouble) {
-        if (hoursDouble === null || typeof hoursDouble === 'undefined') return '';
-        const hours = Math.floor(hoursDouble);
-        const minutes = Math.round((hoursDouble % 1) * 60);
-        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-    }
-
-    return class extends BaseView {
-        constructor(view, params) {
-            super(view, params);
-
-            this.config = {};
-            this.watchStatusInterval = null;
-            this.editingUserId = null;
-            this.allUsers = [];
-
-            ApiClient.getUsers().then(users => {
-                this.allUsers = users;
+                }).join('');
+                container.innerHTML = html;
             });
+        }
 
-            view.querySelector('.watchingEyeForm').addEventListener('submit', (e) => {
-                e.preventDefault();
-                if (this.editingUserId) {
-                    toast({ type: 'error', text: 'Please save or cancel the user you are currently editing.' });
-                    return;
-                }
-                this.saveData(view);
-                return false;
-            });
+        function formatTime(hoursDouble) {
+            if (hoursDouble === null || typeof hoursDouble === 'undefined') return '';
+            const hours = Math.floor(hoursDouble);
+            const minutes = Math.round((hoursDouble % 1) * 60);
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        }
 
-            view.querySelector('.localnav').addEventListener('click', (e) => {
-                e.preventDefault();
-                const target = e.target.closest('.nav-button');
-                if (target) {
-                    const targetId = target.getAttribute('data-target');
-                    view.querySelectorAll('.localnav .nav-button').forEach(b => b.classList.remove('ui-btn-active'));
-                    target.classList.add('ui-btn-active');
-                    view.querySelectorAll('#notificationsPage, #limiterPage, #loggingPage').forEach(page => {
-                        page.classList.toggle('hide', page.id !== targetId);
-                    });
+        return class extends BaseView {
+            constructor(view, params) {
+                super(view, params);
 
-                    if (targetId === 'loggingPage') {
-                        renderLogs(view);
-                    }
-                }
-            });
+                this.config = {};
+                this.watchStatusInterval = null;
+                this.editingUserId = null;
+                this.allUsers = [];
+                this.allClients = [];
 
-            view.querySelector('#btnAddLimitedUser').addEventListener('click', () => {
-                if (this.editingUserId) return;
-                this.editingUserId = newUserId;
-                this.renderLimitedUsers(this.view, this.config);
-            });
-
-            view.querySelector('#btnResetAll').addEventListener('click', () => {
-                ApiClient.ajax({ type: "POST", url: ApiClient.getUrl("WatchingEye/ResetAllUsersTime") }).then(() => {
-                    toast('Reset time for all users.');
-                    this.renderLimitedUsers(this.view, this.config);
+                Promise.all([
+                    ApiClient.getUsers(),
+                    getClientList()
+                ]).then(([users, clients]) => {
+                    this.allUsers = users;
+                    this.allClients = clients;
                 });
-            });
 
-            view.querySelector('#btnClearLog').addEventListener('click', () => {
-                clearLogs().then(() => {
-                    toast('Event log has been cleared.');
-                    renderLogs(view);
-                });
-            });
-
-            view.querySelector('#limitedUsersContainer').addEventListener('click', (e) => {
-                const buttonTarget = e.target.closest('button');
-                if (!buttonTarget) return;
-
-                const userId = buttonTarget.getAttribute('data-userid');
-
-                if (buttonTarget.classList.contains('user-editor-tab-button')) {
+                view.querySelector('.watchingEyeForm').addEventListener('submit', (e) => {
                     e.preventDefault();
-                    const tabId = buttonTarget.getAttribute('data-tab-id');
-                    const editor = buttonTarget.closest('.user-editor');
-                    editor.querySelectorAll('.user-editor-tab-button').forEach(btn => btn.classList.remove('is-active'));
-                    buttonTarget.classList.add('is-active');
-                    editor.querySelectorAll('.user-editor-tab-content').forEach(content => content.classList.toggle('hide', content.id !== tabId));
-                    return;
-                }
-
-                if (!userId) return;
-
-                if (buttonTarget.classList.contains('btnEditUser')) {
-                    if (this.editingUserId) return;
-                    this.editingUserId = userId;
-                    this.renderLimitedUsers(this.view, this.config);
-                    return;
-                }
-
-                if (buttonTarget.classList.contains('btn-cancel-edit-user')) {
-                    this.editingUserId = null;
-                    this.renderLimitedUsers(this.view, this.config);
-                    return;
-                }
-
-                if (buttonTarget.classList.contains('btn-save-user-inline')) {
-                    this.saveUserInline(buttonTarget, userId);
-                    return;
-                }
-
-                if (this.editingUserId) {
-                    toast({ type: 'error', text: 'Please save or cancel the user you are currently editing before performing other actions.' });
-                    return;
-                }
-
-                if (buttonTarget.classList.contains('btnRemoveUser')) {
-                    const user = this.config.LimitedUsers.find(u => u.UserId === userId);
-                    if (user) {
-                        this.config.LimitedUsers = this.config.LimitedUsers.filter(u => u.UserId !== userId);
-                        toast(`User ${user.Username} removed. Please click Save to apply changes.`);
-                        this.renderLimitedUsers(this.view, this.config);
+                    if (this.editingUserId) {
+                        toast({ type: 'error', text: 'Please save or cancel the user you are currently editing.' });
+                        return;
                     }
-                    return;
-                }
+                    this.saveData(view);
+                    return false;
+                });
 
-                if (buttonTarget.classList.contains('btnExtendTime')) {
-                    const input = this.view.querySelector(`.extendTimeMinutes[data-userid="${userId}"]`);
-                    const minutes = parseInt(input.value);
+                view.querySelector('.localnav').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const target = e.target.closest('.nav-button');
+                    if (target) {
+                        const targetId = target.getAttribute('data-target');
+                        view.querySelectorAll('.localnav .nav-button').forEach(b => b.classList.remove('ui-btn-active'));
+                        target.classList.add('ui-btn-active');
+                        view.querySelectorAll('#notificationsPage, #limiterPage, #loggingPage').forEach(page => {
+                            page.classList.toggle('hide', page.id !== targetId);
+                        });
 
-                    if (!minutes || minutes <= 0) {
-                        toast({ type: 'error', text: 'Please enter a valid number of minutes to extend.' });
+                        if (targetId === 'loggingPage') {
+                            renderLogs(view);
+                        }
+                    }
+                });
+
+                view.querySelector('#btnAddLimitedUser').addEventListener('click', () => {
+                    if (this.editingUserId) return;
+                    this.editingUserId = newUserId;
+                    this.renderLimitedUsers(this.view, this.config);
+                });
+
+                view.querySelector('#btnResetAll').addEventListener('click', () => {
+                    ApiClient.ajax({ type: "POST", url: ApiClient.getUrl("WatchingEye/ResetAllUsersTime") }).then(() => {
+                        toast('Reset time for all users.');
+                        this.renderLimitedUsers(this.view, this.config);
+                    });
+                });
+
+                view.querySelector('#btnClearLog').addEventListener('click', () => {
+                    clearLogs().then(() => {
+                        toast('Event log has been cleared.');
+                        renderLogs(view);
+                    });
+                });
+
+                view.querySelector('#limitedUsersContainer').addEventListener('click', (e) => {
+                    const buttonTarget = e.target.closest('button');
+                    if (!buttonTarget) return;
+
+                    const userId = buttonTarget.getAttribute('data-userid');
+
+                    if (buttonTarget.classList.contains('user-editor-tab-button')) {
+                        e.preventDefault();
+                        const tabId = buttonTarget.getAttribute('data-tab-id');
+                        const editor = buttonTarget.closest('.user-editor');
+                        editor.querySelectorAll('.user-editor-tab-button').forEach(btn => btn.classList.remove('is-active'));
+                        buttonTarget.classList.add('is-active');
+                        editor.querySelectorAll('.user-editor-tab-content').forEach(content => content.classList.toggle('hide', content.id !== tabId));
                         return;
                     }
 
-                    ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("WatchingEye/ExtendTime"),
-                        data: JSON.stringify({ UserId: userId, Minutes: minutes }),
-                        contentType: 'application/json'
-                    }).then(() => {
-                        toast(`Time extended for user.`);
-                        this.renderLimitedUsers(this.view, this.config);
-                    }).catch(() => toast({ type: 'error', text: 'Error extending time.' }));
-                    return;
-                }
+                    if (buttonTarget.classList.contains('btnTimeOutUser')) {
+                        const input = this.view.querySelector(`.timeOutMinutes[data-userid="${userId}"]`);
+                        const minutes = parseInt(input.value);
 
-                if (buttonTarget.classList.contains('btnToggleUserLimit')) {
-                    const user = this.config.LimitedUsers.find(u => u.UserId === userId);
-                    if (user) {
-                        user.IsEnabled = !user.IsEnabled;
-                        toast(`Limit for ${user.Username} has been ${user.IsEnabled ? 'enabled' : 'disabled'}. Remember to save your changes.`);
-                        this.renderLimitedUsers(this.view, this.config);
+                        if (!minutes || minutes <= 0) {
+                            toast({ type: 'error', text: 'Please enter a valid number of minutes for the time-out.' });
+                            return;
+                        }
+
+                        ApiClient.ajax({
+                            type: "POST",
+                            url: ApiClient.getUrl("WatchingEye/TimeOutUser"),
+                            data: JSON.stringify({ UserId: userId, Minutes: minutes }),
+                            contentType: 'application/json'
+                        }).then(() => {
+                            toast(`User placed in time-out.`);
+                            this.renderLimitedUsers(this.view, this.config);
+                        }).catch(() => toast({ type: 'error', text: 'Error placing user in time-out.' }));
+                        return;
                     }
-                    return;
-                }
 
-                if (buttonTarget.classList.contains('btnResetUser')) {
-                    ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("WatchingEye/ResetUserTime"),
-                        data: JSON.stringify({ UserId: userId }),
-                        contentType: 'application/json'
-                    }).then(() => {
-                        toast(`Time reset for user.`);
+                    if (buttonTarget.classList.contains('btnClearTimeOut')) {
+                        clearTimeOut(userId).then(() => {
+                            toast('Time-out cleared for user.');
+                            this.renderLimitedUsers(this.view, this.config);
+                        }).catch(() => toast({ type: 'error', text: 'Error clearing time-out.' }));
+                        return;
+                    }
+
+                    if (!userId) return;
+
+                    if (buttonTarget.classList.contains('btnEditUser')) {
+                        if (this.editingUserId) return;
+                        this.editingUserId = userId;
                         this.renderLimitedUsers(this.view, this.config);
-                    }).catch(() => toast({ type: 'error', text: 'Error resetting time.' }));
-                }
-            });
+                        return;
+                    }
+
+                    if (buttonTarget.classList.contains('btn-cancel-edit-user')) {
+                        this.editingUserId = null;
+                        this.renderLimitedUsers(this.view, this.config);
+                        return;
+                    }
+
+                    if (buttonTarget.classList.contains('btn-save-user-inline')) {
+                        this.saveUserInline(buttonTarget, userId);
+                        return;
+                    }
+
+                    if (this.editingUserId) {
+                        toast({ type: 'error', text: 'Please save or cancel the user you are currently editing before performing other actions.' });
+                        return;
+                    }
+
+                    if (buttonTarget.classList.contains('btnRemoveUser')) {
+                        const user = this.config.LimitedUsers.find(u => u.UserId === userId);
+                        if (user) {
+                            this.config.LimitedUsers = this.config.LimitedUsers.filter(u => u.UserId !== userId);
+                            toast(`User ${user.Username} removed. Please click Save to apply changes.`);
+                            this.renderLimitedUsers(this.view, this.config);
+                        }
+                        return;
+                    }
+
+                    if (buttonTarget.classList.contains('btnExtendTime')) {
+                        const input = this.view.querySelector(`.extendTimeMinutes[data-userid="${userId}"]`);
+                        const minutes = parseInt(input.value);
+
+                        if (!minutes || minutes <= 0) {
+                            toast({ type: 'error', text: 'Please enter a valid number of minutes to extend.' });
+                            return;
+                        }
+
+                        ApiClient.ajax({
+                            type: "POST",
+                            url: ApiClient.getUrl("WatchingEye/ExtendTime"),
+                            data: JSON.stringify({ UserId: userId, Minutes: minutes }),
+                            contentType: 'application/json'
+                        }).then(() => {
+                            toast(`Time extended for user.`);
+                            this.renderLimitedUsers(this.view, this.config);
+                        }).catch(() => toast({ type: 'error', text: 'Error extending time.' }));
+                        return;
+                    }
+
+                    if (buttonTarget.classList.contains('btnToggleUserLimit')) {
+                        const user = this.config.LimitedUsers.find(u => u.UserId === userId);
+                        if (user) {
+                            user.IsEnabled = !user.IsEnabled;
+                            toast(`Limit for ${user.Username} has been ${user.IsEnabled ? 'enabled' : 'disabled'}. Remember to save your changes.`);
+                            this.renderLimitedUsers(this.view, this.config);
+                        }
+                        return;
+                    }
+
+                    if (buttonTarget.classList.contains('btnResetUser')) {
+                        ApiClient.ajax({
+                            type: "POST",
+                            url: ApiClient.getUrl("WatchingEye/ResetUserTime"),
+                            data: JSON.stringify({ UserId: userId }),
+                            contentType: 'application/json'
+                        }).then(() => {
+                            toast(`Time reset for user.`);
+                            this.renderLimitedUsers(this.view, this.config);
+                        }).catch(() => toast({ type: 'error', text: 'Error resetting time.' }));
+                    }
+                });
 
 
-            this.loadData(this.view);
-        }
-
-        getLimitedUserDisplayHtml(user, status) {
-            const isEnabled = user.IsEnabled !== false;
-            const disabledClass = isEnabled ? '' : 'disabled-item';
-            const statusText = isEnabled ? '' : ' (Disabled)';
-            const toggleTitle = isEnabled ? 'Disable Limit' : 'Enable Limit';
-            const toggleIcon = isEnabled ? 'power_settings_new' : 'block';
-
-            let remainingTimeText = 'No active limits.';
-            if (status) {
-                const parts = [];
-                if (user.EnableDailyLimit) {
-                    const watched = Math.floor(status.SecondsWatchedDaily / 60);
-                    parts.push(`Daily: ${watched}/${status.DailyLimitMinutes}m`);
-                }
-                if (user.EnableWeeklyLimit) {
-                    const watched = Math.floor(status.SecondsWatchedWeekly / 3600);
-                    parts.push(`Weekly: ${watched}/${status.WeeklyLimitHours}h`);
-                }
-                if (user.EnableMonthlyLimit) {
-                    const watched = Math.floor(status.SecondsWatchedMonthly / 3600);
-                    parts.push(`Monthly: ${watched}/${status.MonthlyLimitHours}h`);
-                }
-                if (user.EnableYearlyLimit) {
-                    const watched = Math.floor(status.SecondsWatchedYearly / 3600);
-                    parts.push(`Yearly: ${watched}/${status.YearlyLimitHours}h`);
-                }
-                if (parts.length > 0) {
-                    remainingTimeText = parts.join(' | ');
-                }
+                this.loadData(this.view);
             }
 
-            const timeWindowText = user.EnableTimeWindow ? `Plays between ${formatTime(user.WatchWindowStartHour || 0)} and ${formatTime(user.WatchWindowEndHour || 0)}` : '';
+            getLimitedUserDisplayHtml(user, status) {
+                const isEnabled = user.IsEnabled !== false;
+                const disabledClass = isEnabled ? '' : 'disabled-item';
+                const statusText = isEnabled ? '' : ' (Disabled)';
+                const toggleTitle = isEnabled ? 'Disable Limit' : 'Enable Limit';
+                const toggleIcon = isEnabled ? 'power_settings_new' : 'block';
 
-            return `
+                const isTimedOut = status && new Date(status.TimeOutUntil) > new Date();
+                let timeOutHtml = '';
+                if (isTimedOut) {
+                    const timeOutUntilString = new Date(status.TimeOutUntil).toLocaleTimeString();
+                    timeOutHtml = `<div class="listItemText secondary" style="color: #f44336;">Timed Out until ${timeOutUntilString}</div>`;
+                }
+
+                let remainingTimeText = 'No active limits.';
+                if (status) {
+                    const parts = [];
+                    if (user.EnableDailyLimit) {
+                        const watched = Math.floor(status.SecondsWatchedDaily / 60);
+                        parts.push(`Daily: ${watched}/${status.DailyLimitMinutes}m`);
+                    }
+                    if (user.EnableWeeklyLimit) {
+                        const watched = Math.floor(status.SecondsWatchedWeekly / 3600);
+                        parts.push(`Weekly: ${watched}/${status.WeeklyLimitHours}h`);
+                    }
+                    if (user.EnableMonthlyLimit) {
+                        const watched = Math.floor(status.SecondsWatchedMonthly / 3600);
+                        parts.push(`Monthly: ${watched}/${status.MonthlyLimitHours}h`);
+                    }
+                    if (user.EnableYearlyLimit) {
+                        const watched = Math.floor(status.SecondsWatchedYearly / 3600);
+                        parts.push(`Yearly: ${watched}/${status.YearlyLimitHours}h`);
+                    }
+                    if (parts.length > 0) {
+                        remainingTimeText = parts.join(' | ');
+                    }
+                }
+
+                const timeWindowText = user.EnableTimeWindow ? `Plays between ${formatTime(user.WatchWindowStartHour || 0)} and ${formatTime(user.WatchWindowEndHour || 0)}` : '';
+
+                return `
                 <div class="listItem ${disabledClass}" style="display:flex; align-items: center; padding: 0.5em 0;">
                     <div class="listItemBody" style="flex-grow: 1;">
                         <h3 class="listItemTitle">${user.Username}${statusText}</h3>
+                        ${timeOutHtml}
                         <div class="listItemText secondary">${remainingTimeText}</div>
                         <div class="listItemText">${timeWindowText}</div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 0.5em; margin-left: 1em;">
+                    <div style="display: flex; align-items: center; gap: 0.5em; margin-left: 1em; flex-wrap: wrap; justify-content: flex-end;">
                         <input is="emby-input" type="number" class="extendTimeMinutes" placeholder="Mins" value="30" style="width: 80px;" data-userid="${user.UserId}" />
                         <button is="emby-button" type="button" class="raised mini btnExtendTime" data-userid="${user.UserId}" title="Extend Time">
                             <span>Extend</span>
                         </button>
+                        <input is="emby-input" type="number" class="timeOutMinutes" placeholder="Mins" value="15" style="width: 80px;" data-userid="${user.UserId}" />
+                        <button is="emby-button" type="button" class="raised mini button-cancel btnTimeOutUser" data-userid="${user.UserId}" title="Time-out User">
+                            <span>Time-Out</span>
+                        </button>
+                        ${isTimedOut ? `
+                        <button is="emby-button" type="button" class="raised mini button-accent btnClearTimeOut" data-userid="${user.UserId}" title="Clear Time-Out">
+                            <span>Clear TO</span>
+                        </button>
+                        ` : ''}
                         <button is="emby-button" type="button" class="fab mini raised paper-icon-button-light btnResetUser" data-userid="${user.UserId}" title="Reset Time">
                             <i class="md-icon">refresh</i>
                         </button>
@@ -276,30 +340,30 @@
                         </button>
                     </div>
                 </div>`;
-        }
-
-        getLimitedUserEditorHtml(user, isNew = false) {
-            const currentLimitedUserIds = new Set(this.config.LimitedUsers.map(u => u.UserId));
-            const availableUsers = this.allUsers.filter(u => !currentLimitedUserIds.has(u.Id));
-            let userSelectHtml = '';
-            if (isNew) {
-                if (availableUsers.length > 0) {
-                    userSelectHtml = `<select is="emby-select" id="selectUser" class="edit-user-select" label="Select User:" required>${availableUsers.map(u => `<option value="${u.Id}" data-username="${u.Name}">${u.Name}</option>`).join('')}</select>`;
-                } else {
-                    userSelectHtml = '<p>No more users available to add.</p>';
-                }
-            } else {
-                userSelectHtml = `<input is="emby-input" id="txtUsername" type="text" label="User:" value="${user.Username}" readonly />`;
             }
 
-            const timeOptions = Array.from({ length: 48 }, (_, i) => `<option value="${i / 2}">${String(Math.floor(i / 2)).padStart(2, '0')}:${String((i % 2) * 30).padStart(2, '0')}</option>`).join('');
-            const weekDayOptions = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, i) => `<option value="${i}">${day}</option>`).join('');
-            const monthDayOptions = Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
-            const monthOptions = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
-            const yearDayOptions = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
+            getLimitedUserEditorHtml(user, isNew = false) {
+                const currentLimitedUserIds = new Set(this.config.LimitedUsers.map(u => u.UserId));
+                const availableUsers = this.allUsers.filter(u => !currentLimitedUserIds.has(u.Id));
+                let userSelectHtml = '';
+                if (isNew) {
+                    if (availableUsers.length > 0) {
+                        userSelectHtml = `<select is="emby-select" id="selectUser" class="edit-user-select" label="Select User:" required>${availableUsers.map(u => `<option value="${u.Id}" data-username="${u.Name}">${u.Name}</option>`).join('')}</select>`;
+                    } else {
+                        userSelectHtml = '<p>No more users available to add.</p>';
+                    }
+                } else {
+                    userSelectHtml = `<input is="emby-input" id="txtUsername" type="text" label="User:" value="${user.Username}" readonly />`;
+                }
+
+                const timeOptions = Array.from({ length: 48 }, (_, i) => `<option value="${i / 2}">${String(Math.floor(i / 2)).padStart(2, '0')}:${String((i % 2) * 30).padStart(2, '0')}</option>`).join('');
+                const weekDayOptions = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, i) => `<option value="${i}">${day}</option>`).join('');
+                const monthDayOptions = Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
+                const monthOptions = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+                const yearDayOptions = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
 
 
-            return `
+                return `
                 <div class="user-editor" data-userid="${user.UserId}">
                     <h3>${isNew ? 'Add New Limited User' : 'Editing: ' + user.Username}</h3>
                      <div class="inputContainer">${userSelectHtml}</div>
@@ -375,187 +439,207 @@
                        <button is="emby-button" type="button" class="raised button-cancel btn-cancel-edit-user" data-userid="${user.UserId}"><span>Cancel</span></button>
                     </div>
                 </div>`;
-        }
-
-        saveUserInline(saveButton, userId) {
-            const editorContainer = saveButton.closest('.user-editor');
-            if (!editorContainer) return;
-
-            const userData = {
-                EnableDailyLimit: editorContainer.querySelector('.edit-enable-daily').checked,
-                DailyLimitMinutes: parseInt(editorContainer.querySelector('.edit-daily-minutes').value) || 0,
-                EnableWeeklyLimit: editorContainer.querySelector('.edit-enable-weekly').checked,
-                WeeklyLimitHours: parseInt(editorContainer.querySelector('.edit-weekly-hours').value) || 0,
-                EnableMonthlyLimit: editorContainer.querySelector('.edit-enable-monthly').checked,
-                MonthlyLimitHours: parseInt(editorContainer.querySelector('.edit-monthly-hours').value) || 0,
-                EnableYearlyLimit: editorContainer.querySelector('.edit-enable-yearly').checked,
-                YearlyLimitHours: parseInt(editorContainer.querySelector('.edit-yearly-hours').value) || 0,
-
-                ResetTimeOfDayHours: parseFloat(editorContainer.querySelector('.edit-reset-time').value),
-                WeeklyResetDay: parseInt(editorContainer.querySelector('.edit-weekly-reset-day').value),
-                MonthlyResetDay: parseInt(editorContainer.querySelector('.edit-monthly-reset-day').value),
-                YearlyResetMonth: parseInt(editorContainer.querySelector('.edit-yearly-reset-month').value),
-                YearlyResetDay: parseInt(editorContainer.querySelector('.edit-yearly-reset-day').value),
-
-                EnableThresholdNotifications: editorContainer.querySelector('.edit-enable-threshold-notifications').checked,
-                NotificationThresholds: editorContainer.querySelector('.edit-notification-thresholds').value,
-
-                EnableTimeWindow: editorContainer.querySelector('.edit-enable-time-window').checked,
-                WatchWindowStartHour: parseFloat(editorContainer.querySelector('.edit-window-start').value),
-                WatchWindowEndHour: parseFloat(editorContainer.querySelector('.edit-window-end').value)
-            };
-
-            if (userId === newUserId) {
-                const userSelect = editorContainer.querySelector('.edit-user-select');
-                if (!userSelect || !userSelect.value) {
-                    toast({ type: 'error', text: 'Please select a user.' });
-                    return;
-                }
-                const selectedOption = userSelect.options[userSelect.selectedIndex];
-                userData.UserId = selectedOption.value;
-                userData.Username = selectedOption.getAttribute('data-username');
-                userData.IsEnabled = true;
-                this.config.LimitedUsers.push(userData);
-                toast(`User ${userData.Username} added. Save all changes to apply.`);
-            } else {
-                const userToUpdate = this.config.LimitedUsers.find(u => u.UserId === userId);
-                if (userToUpdate) {
-                    Object.assign(userToUpdate, userData);
-                    toast(`User ${userToUpdate.Username} updated. Save all changes to apply.`);
-                }
             }
 
-            this.editingUserId = null;
-            this.renderLimitedUsers(this.view, this.config);
-        }
+            saveUserInline(saveButton, userId) {
+                const editorContainer = saveButton.closest('.user-editor');
+                if (!editorContainer) return;
 
-        renderLimitedUsers(view, config) {
-            const container = view.querySelector('#limitedUsersContainer');
-            if (!config.LimitedUsers) {
-                config.LimitedUsers = [];
-            }
+                const userData = {
+                    EnableDailyLimit: editorContainer.querySelector('.edit-enable-daily').checked,
+                    DailyLimitMinutes: parseInt(editorContainer.querySelector('.edit-daily-minutes').value) || 0,
+                    EnableWeeklyLimit: editorContainer.querySelector('.edit-enable-weekly').checked,
+                    WeeklyLimitHours: parseInt(editorContainer.querySelector('.edit-weekly-hours').value) || 0,
+                    EnableMonthlyLimit: editorContainer.querySelector('.edit-enable-monthly').checked,
+                    MonthlyLimitHours: parseInt(editorContainer.querySelector('.edit-monthly-hours').value) || 0,
+                    EnableYearlyLimit: editorContainer.querySelector('.edit-enable-yearly').checked,
+                    YearlyLimitHours: parseInt(editorContainer.querySelector('.edit-yearly-hours').value) || 0,
 
-            getLimitedUsersStatus().then(userStatuses => {
-                const statusMap = new Map(userStatuses.map(s => [s.UserId, s]));
+                    ResetTimeOfDayHours: parseFloat(editorContainer.querySelector('.edit-reset-time').value),
+                    WeeklyResetDay: parseInt(editorContainer.querySelector('.edit-weekly-reset-day').value),
+                    MonthlyResetDay: parseInt(editorContainer.querySelector('.edit-monthly-reset-day').value),
+                    YearlyResetMonth: parseInt(editorContainer.querySelector('.edit-yearly-reset-month').value),
+                    YearlyResetDay: parseInt(editorContainer.querySelector('.edit-yearly-reset-day').value),
 
-                let listHtml = '';
-                const usersToRender = [...config.LimitedUsers];
+                    EnableThresholdNotifications: editorContainer.querySelector('.edit-enable-threshold-notifications').checked,
+                    NotificationThresholds: editorContainer.querySelector('.edit-notification-thresholds').value,
 
-                if (this.editingUserId === newUserId) {
-                    usersToRender.unshift({ UserId: newUserId, EnableDailyLimit: true, DailyLimitMinutes: 120, NotificationThresholds: '80,95', ResetTimeOfDayHours: 3, WeeklyResetDay: 0, MonthlyResetDay: 1, YearlyResetMonth: 1, YearlyResetDay: 1 });
-                }
+                    EnableTimeWindow: editorContainer.querySelector('.edit-enable-time-window').checked,
+                    WatchWindowStartHour: parseFloat(editorContainer.querySelector('.edit-window-start').value),
+                    WatchWindowEndHour: parseFloat(editorContainer.querySelector('.edit-window-end').value)
+                };
 
-                if (usersToRender.length === 0) {
-                    listHtml = '<div class="paper-card" style="padding: 1em;"><p>No users have been added to the watch time limiter.</p></div>';
+                if (userId === newUserId) {
+                    const userSelect = editorContainer.querySelector('.edit-user-select');
+                    if (!userSelect || !userSelect.value) {
+                        toast({ type: 'error', text: 'Please select a user.' });
+                        return;
+                    }
+                    const selectedOption = userSelect.options[userSelect.selectedIndex];
+                    userData.UserId = selectedOption.value;
+                    userData.Username = selectedOption.getAttribute('data-username');
+                    userData.IsEnabled = true;
+                    this.config.LimitedUsers.push(userData);
+                    toast(`User ${userData.Username} added. Save all changes to apply.`);
                 } else {
-                    listHtml = '<div class="paper-card" style="padding: 1em;">' + usersToRender.map(user => {
-                        if (user.UserId === this.editingUserId) {
-                            return this.getLimitedUserEditorHtml(user, user.UserId === newUserId);
-                        } else {
-                            return this.getLimitedUserDisplayHtml(user, statusMap.get(user.UserId));
-                        }
-                    }).join('<hr style="margin: 1em 0; border-color: #444;" />') + '</div>';
-                }
-
-                container.innerHTML = listHtml;
-
-                if (this.editingUserId) {
-                    const editor = container.querySelector('.user-editor');
-                    if (editor) {
-                        const user = config.LimitedUsers.find(u => u.UserId === this.editingUserId) || usersToRender[0];
-
-                        editor.querySelector('.edit-reset-time').value = user.ResetTimeOfDayHours || 3;
-                        editor.querySelector('.edit-weekly-reset-day').value = user.WeeklyResetDay || 0;
-                        editor.querySelector('.edit-monthly-reset-day').value = user.MonthlyResetDay || 1;
-                        editor.querySelector('.edit-yearly-reset-month').value = user.YearlyResetMonth || 1;
-                        editor.querySelector('.edit-yearly-reset-day').value = user.YearlyResetDay || 1;
-                        editor.querySelector('.edit-window-start').value = user.WatchWindowStartHour || 0;
-                        editor.querySelector('.edit-window-end').value = user.WatchWindowEndHour || 23.5;
-
-                        const timeWindowCheckbox = editor.querySelector('.edit-enable-time-window');
-                        const timeWindowContainer = editor.querySelector('.time-window-container');
-                        const updateTimeWindowVisibility = () => {
-                            timeWindowContainer.classList.toggle('hide', !timeWindowCheckbox.checked);
-                        };
-                        timeWindowCheckbox.addEventListener('change', updateTimeWindowVisibility);
-                        updateTimeWindowVisibility();
+                    const userToUpdate = this.config.LimitedUsers.find(u => u.UserId === userId);
+                    if (userToUpdate) {
+                        Object.assign(userToUpdate, userData);
+                        toast(`User ${userToUpdate.Username} updated. Save all changes to apply.`);
                     }
                 }
-            });
-        }
 
-        loadData(view) {
-            loading.show();
-            getPluginConfiguration().then(config => {
-                this.config = config;
+                this.editingUserId = null;
+                this.renderLimitedUsers(this.view, this.config);
+            }
+
+            renderLimitedUsers(view, config) {
+                const container = view.querySelector('#limitedUsersContainer');
+                if (!config.LimitedUsers) {
+                    config.LimitedUsers = [];
+                }
+
+                getLimitedUsersStatus().then(userStatuses => {
+                    const statusMap = new Map(userStatuses.map(s => [s.UserId, s]));
+
+                    let listHtml = '';
+                    const usersToRender = [...config.LimitedUsers];
+
+                    if (this.editingUserId === newUserId) {
+                        usersToRender.unshift({ UserId: newUserId, EnableDailyLimit: true, DailyLimitMinutes: 120, NotificationThresholds: '80,95', ResetTimeOfDayHours: 3, WeeklyResetDay: 0, MonthlyResetDay: 1, YearlyResetMonth: 1, YearlyResetDay: 1 });
+                    }
+
+                    if (usersToRender.length === 0) {
+                        listHtml = '<div class="paper-card" style="padding: 1em;"><p>No users have been added to the watch time limiter.</p></div>';
+                    } else {
+                        listHtml = '<div class="paper-card" style="padding: 1em;">' + usersToRender.map(user => {
+                            if (user.UserId === this.editingUserId) {
+                                return this.getLimitedUserEditorHtml(user, user.UserId === newUserId);
+                            } else {
+                                return this.getLimitedUserDisplayHtml(user, statusMap.get(user.UserId));
+                            }
+                        }).join('<hr style="margin: 1em 0; border-color: #444;" />') + '</div>';
+                    }
+
+                    container.innerHTML = listHtml;
+
+                    if (this.editingUserId) {
+                        const editor = container.querySelector('.user-editor');
+                        if (editor) {
+                            const user = config.LimitedUsers.find(u => u.UserId === this.editingUserId) || usersToRender[0];
+
+                            editor.querySelector('.edit-reset-time').value = user.ResetTimeOfDayHours || 3;
+                            editor.querySelector('.edit-weekly-reset-day').value = user.WeeklyResetDay || 0;
+                            editor.querySelector('.edit-monthly-reset-day').value = user.MonthlyResetDay || 1;
+                            editor.querySelector('.edit-yearly-reset-month').value = user.YearlyResetMonth || 1;
+                            editor.querySelector('.edit-yearly-reset-day').value = user.YearlyResetDay || 1;
+                            editor.querySelector('.edit-window-start').value = user.WatchWindowStartHour || 0;
+                            editor.querySelector('.edit-window-end').value = user.WatchWindowEndHour || 23.5;
+
+                            const timeWindowCheckbox = editor.querySelector('.edit-enable-time-window');
+                            const timeWindowContainer = editor.querySelector('.time-window-container');
+                            const updateTimeWindowVisibility = () => {
+                                timeWindowContainer.classList.toggle('hide', !timeWindowCheckbox.checked);
+                            };
+                            timeWindowCheckbox.addEventListener('change', updateTimeWindowVisibility);
+                            updateTimeWindowVisibility();
+                        }
+                    }
+                });
+            }
+
+            renderExclusionLists(view, config) {
+                const usersContainer = view.querySelector('#excludedUsersContainer');
+                const clientsContainer = view.querySelector('#excludedClientsContainer');
+
+                usersContainer.innerHTML = this.allUsers.map(user => {
+                    const isChecked = (config.ExcludedUserIds || []).includes(user.Id);
+                    return `<label><input is="emby-checkbox" type="checkbox" class="excludedUser" data-userid="${user.Id}" ${isChecked ? 'checked' : ''} /><span>${user.Name}</span></label>`;
+                }).join('');
+
+                clientsContainer.innerHTML = this.allClients.map(client => {
+                    const isChecked = (config.ExcludedClients || []).some(c => c.toLowerCase() === client.toLowerCase());
+                    return `<label><input is="emby-checkbox" type="checkbox" class="excludedClient" data-client="${client}" ${isChecked ? 'checked' : ''} /><span>${client}</span></label>`;
+                }).join('');
+            }
+
+            loadData(view) {
+                loading.show();
+                getPluginConfiguration().then(config => {
+                    this.config = config;
+                    view.querySelectorAll('[data-config-key]').forEach(el => {
+                        const key = el.getAttribute('data-config-key');
+                        const value = config[key];
+                        if (el.type === 'checkbox') {
+                            el.checked = value;
+                        } else if (!Array.isArray(value)) {
+                            el.value = value || '';
+                        }
+                    });
+
+                    this.editingUserId = null;
+                    this.renderLimitedUsers(view, this.config);
+                    this.renderExclusionLists(view, this.config);
+                    loading.hide();
+                });
+            }
+
+            saveData(view) {
+                loading.show();
+
                 view.querySelectorAll('[data-config-key]').forEach(el => {
                     const key = el.getAttribute('data-config-key');
-                    const value = config[key];
-                    if (el.type === 'checkbox') {
-                        el.checked = value;
-                    } else {
-                        el.value = value || '';
+
+                    if (Object.prototype.hasOwnProperty.call(this.config, key) && !Array.isArray(this.config[key])) {
+                        if (el.type === 'checkbox') {
+                            this.config[key] = el.checked;
+                        } else if (el.type === 'number') {
+                            this.config[key] = parseInt(el.value) || 0;
+                        }
+                        else {
+                            this.config[key] = el.value;
+                        }
                     }
                 });
 
-                this.editingUserId = null;
-                this.renderLimitedUsers(view, this.config);
-                loading.hide();
-            });
-        }
+                this.config.ExcludedUserIds = Array.from(view.querySelectorAll('.excludedUser:checked')).map(cb => cb.getAttribute('data-userid'));
+                this.config.ExcludedClients = Array.from(view.querySelectorAll('.excludedClient:checked')).map(cb => cb.getAttribute('data-client'));
 
-        saveData(view) {
-            loading.show();
 
-            view.querySelectorAll('[data-config-key]').forEach(el => {
-                const key = el.getAttribute('data-config-key');
-
-                if (Object.prototype.hasOwnProperty.call(this.config, key) && !Array.isArray(this.config[key])) {
-                    if (el.type === 'checkbox') {
-                        this.config[key] = el.checked;
-                    } else if (el.type === 'number') {
-                        this.config[key] = parseInt(el.value) || 0;
-                    }
-                    else {
-                        this.config[key] = el.value;
-                    }
-                }
-            });
-
-            updatePluginConfiguration(this.config).then(result => {
-                loading.hide();
-                Dashboard.processPluginConfigurationUpdateResult(result);
-                this.loadData(view);
-            }).catch(() => {
-                loading.hide();
-                toast({ type: 'error', text: 'Error saving configuration.' });
-            });
-        }
-
-        onResume(options) {
-            super.onResume(options);
-            this.loadData(this.view);
-            this.watchStatusInterval = setInterval(() => {
-                if (this.config.EnableWatchTimeLimiter && !this.editingUserId && document.querySelector('#limiterPage:not(.hide)')) {
-                    this.renderLimitedUsers(this.view, this.config);
-                }
-            }, 10000);
-        }
-
-        onPause() {
-            super.onPause();
-            if (this.watchStatusInterval) {
-                clearInterval(this.watchStatusInterval);
-                this.watchStatusInterval = null;
+                updatePluginConfiguration(this.config).then(result => {
+                    loading.hide();
+                    Dashboard.processPluginConfigurationUpdateResult(result);
+                    this.loadData(view);
+                }).catch(() => {
+                    loading.hide();
+                    toast({ type: 'error', text: 'Error saving configuration.' });
+                });
             }
-        }
 
-        destroy() {
-            if (this.watchStatusInterval) {
-                clearInterval(this.watchStatusInterval);
-                this.watchStatusInterval = null;
+            onResume(options) {
+                super.onResume(options);
+                this.loadData(this.view);
+                this.watchStatusInterval = setInterval(() => {
+                    if (this.config.EnableWatchTimeLimiter && !this.editingUserId && document.querySelector('#limiterPage:not(.hide)')) {
+                        this.renderLimitedUsers(this.view, this.config);
+                    }
+                }, 10000);
             }
-            super.destroy();
-        }
-    };
-});
+
+            onPause() {
+                super.onPause();
+                if (this.watchStatusInterval) {
+                    clearInterval(this.watchStatusInterval);
+                    this.watchStatusInterval = null;
+                }
+            }
+
+            destroy() {
+                if (this.watchStatusInterval) {
+                    clearInterval(this.watchStatusInterval);
+                    this.watchStatusInterval = null;
+                }
+                super.destroy();
+            }
+        };
+    });

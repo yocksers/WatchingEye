@@ -1,4 +1,4 @@
-﻿using MediaBrowser.Common.Configuration;
+﻿﻿using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Serialization;
@@ -14,7 +14,7 @@ using WatchingEye.Services;
 
 namespace WatchingEye
 {
-    public enum PlaybackBlockReason { Allowed, TimeLimitExceeded, OutsideTimeWindow }
+    public enum PlaybackBlockReason { Allowed, TimeLimitExceeded, OutsideTimeWindow, TimedOut }
 
     public static class WatchTimeManager
     {
@@ -128,6 +128,13 @@ namespace WatchingEye
                         continue;
                     }
 
+                    var userData = _userWatchData.GetOrAdd(user.UserId, new UserWatchData { UserId = user.UserId });
+                    if (userData.TimeOutUntil > now)
+                    {
+                        StopPlaybackForUser(user.UserId, PlaybackBlockReason.TimedOut).GetAwaiter().GetResult();
+                        continue;
+                    }
+
                     bool timeWasAdded = false;
                     foreach (var session in user.Sessions)
                     {
@@ -136,7 +143,6 @@ namespace WatchingEye
 
                         if (timeToAdd > TimeSpan.Zero)
                         {
-                            var userData = _userWatchData.GetOrAdd(user.UserId, new UserWatchData { UserId = user.UserId });
                             userData.WatchedTimeTicksDaily += timeToAdd.Ticks;
                             userData.WatchedTimeTicksWeekly += timeToAdd.Ticks;
                             userData.WatchedTimeTicksMonthly += timeToAdd.Ticks;
@@ -155,7 +161,6 @@ namespace WatchingEye
                         }
                         else
                         {
-                            var userData = _userWatchData.GetOrAdd(user.UserId, new UserWatchData { UserId = user.UserId });
                             var representativeSession = user.Sessions.First();
                             ProcessThresholdNotifications(representativeSession, user.UserConfig, userData);
                         }
@@ -321,12 +326,16 @@ namespace WatchingEye
             var limitedUser = config.LimitedUsers.FirstOrDefault(u => u.UserId == userId);
             if (limitedUser == null || !limitedUser.IsEnabled) return PlaybackBlockReason.Allowed;
 
+            var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
+
+            if (userData.TimeOutUntil > DateTime.Now)
+                return PlaybackBlockReason.TimedOut;
+
             if (limitedUser.EnableTimeWindow && IsOutsideTimeWindow(limitedUser, DateTime.Now))
                 return PlaybackBlockReason.OutsideTimeWindow;
 
             if (_limitReachedNotified.ContainsKey(userId)) return PlaybackBlockReason.TimeLimitExceeded;
 
-            var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
 
             if (limitedUser.EnableDailyLimit && limitedUser.DailyLimitMinutes > 0 && userData.WatchedTimeTicksDaily >= (TimeSpan.FromMinutes(limitedUser.DailyLimitMinutes).Ticks + userData.TimeCreditTicksDaily))
                 return PlaybackBlockReason.TimeLimitExceeded;
@@ -341,6 +350,32 @@ namespace WatchingEye
                 return PlaybackBlockReason.TimeLimitExceeded;
 
             return PlaybackBlockReason.Allowed;
+        }
+
+        private static string FormatTimeSpan(TimeSpan timeSpan)
+        {
+            if (timeSpan.TotalSeconds <= 1)
+            {
+                return "a moment";
+            }
+
+            var parts = new List<string>();
+
+            if (timeSpan.Hours > 0)
+            {
+                parts.Add($"{timeSpan.Hours} hour" + (timeSpan.Hours == 1 ? string.Empty : "s"));
+            }
+            if (timeSpan.Minutes > 0)
+            {
+                parts.Add($"{timeSpan.Minutes} minute" + (timeSpan.Minutes == 1 ? string.Empty : "s"));
+            }
+
+            if (timeSpan.TotalMinutes < 2 && timeSpan.Seconds > 0)
+            {
+                parts.Add($"{timeSpan.Seconds} second" + (timeSpan.Seconds == 1 ? string.Empty : "s"));
+            }
+
+            return string.Join(" and ", parts);
         }
 
         public static async Task StopPlaybackForUser(string userId, PlaybackBlockReason reason)
@@ -386,6 +421,19 @@ namespace WatchingEye
                     message = config.TimeWindowBlockedMessageText;
                     header = "Playback Not Allowed";
                     break;
+                case PlaybackBlockReason.TimedOut:
+                    header = "Playback Disabled";
+                    if (_userWatchData.TryGetValue(userId, out var userData))
+                    {
+                        var remaining = userData.TimeOutUntil - DateTime.Now;
+                        var formattedDuration = FormatTimeSpan(remaining);
+                        message = config.TimeOutMessageText.Replace("{duration}", formattedDuration);
+                    }
+                    else
+                    {
+                        message = config.TimeOutMessageText.Replace(" for the next {duration}", string.Empty);
+                    }
+                    break;
                 default:
                     return;
             }
@@ -430,6 +478,7 @@ namespace WatchingEye
                     SecondsWatchedWeekly = TimeSpan.FromTicks(userData.WatchedTimeTicksWeekly).TotalSeconds,
                     SecondsWatchedMonthly = TimeSpan.FromTicks(userData.WatchedTimeTicksMonthly).TotalSeconds,
                     SecondsWatchedYearly = TimeSpan.FromTicks(userData.WatchedTimeTicksYearly).TotalSeconds,
+                    TimeOutUntil = userData.TimeOutUntil,
                 });
             }
             return statusList;
@@ -448,6 +497,26 @@ namespace WatchingEye
 
             _limitReachedNotified.TryRemove(userId, out _);
             SaveWatchTimeData();
+        }
+
+        public static void TimeOutUser(string userId, int minutes)
+        {
+            if (minutes <= 0) return;
+            var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
+            userData.TimeOutUntil = DateTime.Now.AddMinutes(minutes);
+            SaveWatchTimeData();
+            _logger?.Info($"[WatchTimeManager] User {userId} has been timed out for {minutes} minutes.");
+            StopPlaybackForUser(userId, PlaybackBlockReason.TimedOut).GetAwaiter().GetResult();
+        }
+
+        public static void ClearTimeOutForUser(string userId)
+        {
+            if (_userWatchData.TryGetValue(userId, out var userData))
+            {
+                userData.TimeOutUntil = DateTime.MinValue;
+                SaveWatchTimeData();
+                _logger?.Info($"[WatchTimeManager] Cleared time-out for user {userId}.");
+            }
         }
 
         public static void ResetWatchTimeForUser(string userId)
