@@ -1,0 +1,218 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Watching Eye Controller</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 1em;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #52B54B;
+            text-align: center;
+        }
+
+        input, button {
+            padding: 12px;
+            margin: 8px 0;
+            border: 1px solid #444;
+            background-color: #333;
+            color: #e0e0e0;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 1em;
+        }
+
+        button {
+            background-color: #52B54B;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+            button:hover:not(:disabled) {
+                opacity: 0.8;
+            }
+
+            button:disabled {
+                background-color: #555;
+                cursor: not-allowed;
+            }
+
+        .button-secondary {
+            background-color: #007bff;
+        }
+
+        .button-danger {
+            background-color: #dc3545;
+        }
+
+        .auth-bar {
+            background-color: #1e1e1e;
+            padding: 1.5em;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            display: flex;
+            gap: 1em;
+            align-items: center;
+        }
+
+            .auth-bar input {
+                flex-grow: 1;
+                margin: 0;
+            }
+
+            .auth-bar button {
+                margin: 0;
+            }
+
+        #user-cards {
+            margin-top: 1.5em;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5em;
+        }
+
+        .user-card {
+            background-color: #1e1e1e;
+            padding: 1.5em;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+
+            .user-card h2 {
+                margin-top: 0;
+                color: #52B54B;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .user-card .status-ok {
+                font-size: 0.8em;
+                color: #28a745;
+            }
+
+            .user-card .status-timeout {
+                font-size: 0.8em;
+                color: #dc3545;
+                font-weight: bold;
+            }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1em;
+            margin: 1.5em 0;
+        }
+
+        .stat-item {
+            background-color: #2a2a2a;
+            padding: 1em;
+            border-radius: 5px;
+        }
+
+            .stat-item .label {
+                display: block;
+                font-size: 0.9em;
+                color: #aaa;
+            }
+
+            .stat-item .value {
+                display: block;
+                font-size: 1.4em;
+                font-weight: bold;
+            }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1em;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 0.5em;
+        }
+
+        .control-group input {
+            width: 100%;
+        }
+
+        .actions-group {
+            grid-column: 1 / -1;
+            display: flex;
+            gap: 1em;
+            flex-wrap: wrap;
+            margin-top: 1em;
+        }
+
+            .actions-group button {
+                flex-grow: 1;
+            }
+
+            .actions-group .input-group {
+                display: flex;
+                flex-grow: 2;
+            }
+
+                .actions-group .input-group input {
+                    border-radius: 4px 0 0 4px;
+                }
+
+                .actions-group .input-group button {
+                    border-radius: 0 4px 4px 0;
+                    margin: 8px 0;
+                }
+
+        #toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: white;
+            padding: 16px;
+            border-radius: 4px;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.5s;
+            font-size: 1.1em;
+        }
+
+            #toast.show {
+                opacity: 1;
+            }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Watching Eye Controller</h1>
+
+        <div class="auth-bar">
+            <input type="password" id="password" placeholder="Enter password">
+            <button id="refreshStatus">Load / Refresh Data</button>
+        </div>
+
+        <div id="user-cards">
+            <p style="text-align: center; margin-top: 2em;">Enter password and click "Load Data" to see user status and controls.</p>
+        </div>
+    </div>
+
+    <div id="toast"></div>
+
+    <script src="ExternalAdmin.js"></script>
+</body>
+</html>

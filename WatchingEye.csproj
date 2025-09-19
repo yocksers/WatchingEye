@@ -9,16 +9,20 @@
 		<Nullable>enable</Nullable>
 
 		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-		<AssemblyVersion>1.1.6.0</AssemblyVersion>
-		<FileVersion>1.1.6.0</FileVersion>
+		<AssemblyVersion>1.2.2.0</AssemblyVersion>
+		<FileVersion>1.2.2.0</FileVersion>
 		<RootNamespace>WatchingEye</RootNamespace>
 	</PropertyGroup>
 
 	<ItemGroup>
+		<None Remove="ExternalAdmin.html" />
+		<None Remove="ExternalAdmin.js" />
 		<None Remove="Images\logo.jpg" />
 	</ItemGroup>
 
 	<ItemGroup>
+		<EmbeddedResource Include="Web\ExternalAdmin.html" />
+		<EmbeddedResource Include="Web\ExternalAdmin.js" />
 		<EmbeddedResource Include="Images\logo.jpg" />
 		<EmbeddedResource Include="WatchingEyeConfiguration.html" />
 		<EmbeddedResource Include="WatchingEyeConfiguration.js" />
@@ -26,6 +30,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="MediaBrowser.Server.Core" Version="4.8.11" />
+		<PackageReference Include="ServiceStack" Version="5.13.2" />
 	</ItemGroup>
 
 

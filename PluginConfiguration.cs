@@ -22,14 +22,14 @@ namespace WatchingEye
         public bool EnableYearlyLimit { get; set; } = false;
         public int YearlyLimitHours { get; set; } = 0;
 
-        public double ResetTimeOfDayHours { get; set; } = 3; 
+        public double ResetTimeOfDayHours { get; set; } = 3;
         public DayOfWeek WeeklyResetDay { get; set; } = DayOfWeek.Sunday;
         public int MonthlyResetDay { get; set; } = 1;
         public int YearlyResetMonth { get; set; } = 1;
         public int YearlyResetDay { get; set; } = 1;
 
         public bool EnableThresholdNotifications { get; set; } = false;
-        public string NotificationThresholds { get; set; } = "80,95"; 
+        public string NotificationThresholds { get; set; } = "80,95";
 
         public bool EnableTimeWindow { get; set; } = false;
         public double WatchWindowStartHour { get; set; } = 0;
@@ -70,6 +70,8 @@ namespace WatchingEye
     {
         public bool EnableTranscodeWarning { get; set; } = true;
         public string MessageText { get; set; } = "This video is being transcoded. Reason: {reason}";
+        public string MessageTextClientLimitation { get; set; } = "This video is transcoding because your device doesn't support the format ({reason}). For a better experience, try a different client like Emby Theater or a modern web browser.";
+        public string MessageTextBandwidthLimitation { get; set; } = "This video is transcoding due to your current quality settings ({reason}). For a better experience, try choosing a lower quality setting.";
         public int MaxNotifications { get; set; } = 1;
         public bool NotifyOnAudioOnlyTranscode { get; set; } = true;
         public int InitialDelaySeconds { get; set; } = 2;
@@ -94,6 +96,12 @@ namespace WatchingEye
         public string WatchTimeLimitMessageText { get; set; } = "You have reached your watch time limit. Playback is now disabled until the timer resets.";
         public string TimeWindowBlockedMessageText { get; set; } = "Playback is not allowed at this time. Please try again during your allowed watch window.";
         public string TimeOutMessageText { get; set; } = "You have been placed in a temporary time-out. Playback is disabled for the next {duration}.";
+        public string ApiKey { get; set; } = "";
+        public bool EnablePublicApi { get; set; } = false;
+        public bool EnableExternalWebServer { get; set; } = false;
+        public int ExternalWebServerPort { get; set; } = 9988;
+        public string ExternalWebServerPassword { get; set; } = "";
+
 
         public PluginConfiguration()
         {

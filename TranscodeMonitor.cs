@@ -138,7 +138,20 @@ namespace WatchingEye
 
             var rawTranscodeReasons = string.Join(", ", session.TranscodingInfo.TranscodeReasons);
             var friendlyReasons = TranscodeReasonParser.Parse(rawTranscodeReasons);
-            var message = config.MessageText.Replace("{reason}", friendlyReasons);
+
+            string message;
+            if (rawTranscodeReasons.Contains("BitrateTooHighInMatrix") && !string.IsNullOrWhiteSpace(config.MessageTextBandwidthLimitation))
+            {
+                message = config.MessageTextBandwidthLimitation.Replace("{reason}", friendlyReasons);
+            }
+            else if (!string.IsNullOrWhiteSpace(config.MessageTextClientLimitation))
+            {
+                message = config.MessageTextClientLimitation.Replace("{reason}", friendlyReasons);
+            }
+            else
+            {
+                message = config.MessageText.Replace("{reason}", friendlyReasons);
+            }
 
             LogManager.LogTranscode(session, friendlyReasons);
 

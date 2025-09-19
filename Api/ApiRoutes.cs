@@ -12,5 +12,12 @@
         public const string TimeOutUser = "/WatchingEye/TimeOutUser";
         public const string GetClientList = "/WatchingEye/GetClientList";
         public const string ClearTimeOut = "/WatchingEye/ClearTimeOut";
+
+        // Public API Routes
+        public const string PublicLimitedUsersStatus = "/WatchingEye/Public/Status";
+        public const string PublicExtendTime = "/WatchingEye/Public/ExtendTime";
+        public const string PublicTimeOutUser = "/WatchingEye/Public/TimeOutUser";
+        public const string PublicClearTimeOut = "/WatchingEye/Public/ClearTimeOut";
+        public const string PublicResetUserTime = "/WatchingEye/Public/ResetUserTime";
     }
 }

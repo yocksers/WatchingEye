@@ -1,4 +1,4 @@
-﻿﻿﻿﻿<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow" data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true" data-bindheader="true" data-controller="__plugin/WatchingEyeConfigurationjs" data-title="Watching Eye">
+﻿<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow" data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true" data-bindheader="true" data-controller="__plugin/WatchingEyeConfigurationjs" data-title="Watching Eye">
     <style>
         .disabled-item .listItemBody, .disabled-item .listItemBody .secondary {
             color: #999;
@@ -54,6 +54,101 @@
             border-radius: 5px;
             margin-top: 0.5em;
         }
+
+        .webserver-status-box {
+            padding: 1em 1.5em;
+            margin-top: 1em;
+            border-radius: 5px;
+            border-left-width: 5px;
+            border-left-style: solid;
+        }
+
+        .webserver-status-box-error {
+            background-color: #492222;
+            border-left-color: #d83a3a;
+        }
+
+        .webserver-status-box-success {
+            background-color: #224922;
+            border-left-color: #3ad83a;
+        }
+
+        .webserver-status-box p {
+            margin: 0.5em 0;
+        }
+
+        .webserver-status-box code {
+            background-color: rgba(0,0,0,0.5);
+            padding: 0.2em 0.5em;
+            border-radius: 3px;
+            user-select: all;
+        }
+
+        .netsh-command-box {
+            background-color: rgba(255, 193, 7, 0.1);
+            border: 1px solid rgba(255, 193, 7, 0.5);
+            border-left-width: 5px;
+            border-left-color: #ffc107;
+            padding: 1em 1.5em;
+            margin-top: 1em;
+            border-radius: 5px;
+        }
+
+            .netsh-command-box h3 {
+                margin-top: 0;
+                color: #ffc107;
+            }
+
+            .netsh-command-box code {
+                background-color: rgba(0,0,0,0.5);
+                padding: 0.5em;
+                border-radius: 3px;
+                display: block;
+                margin-top: 0.5em;
+                user-select: all;
+                white-space: pre-wrap;
+            }
+
+
+        /* Styles for the new help page */
+        .help-page h2 {
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+        }
+
+        .help-page h3 {
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+            color: #52B54B;
+        }
+
+        .help-page p {
+            margin-bottom: 0.5em;
+            line-height: 1.5;
+        }
+
+        .help-page code {
+            background-color: rgba(0,0,0,0.3);
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+
+        .help-page pre {
+            background-color: rgba(0,0,0,0.3);
+            padding: 1em;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .help-page ul {
+            margin-left: 2em;
+        }
+
+        .help-page li {
+            margin-bottom: 0.5em;
+        }
     </style>
     <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
         <div class="readOnlyContent auto-center" style="max-width: 1200px;">
@@ -63,6 +158,8 @@
                 <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="notificationsPage">Notifications</a>
                 <a is="emby-linkbutton" class="nav-button ui-btn-active" href="#" data-role="button" data-target="limiterPage">Watch Time Limiter</a>
                 <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="loggingPage">Logging</a>
+                <!-- ADDED THIS NEW BUTTON -->
+                <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="helpPage">API & Help</a>
             </div>
 
             <form class="watchingEyeForm">
@@ -74,8 +171,16 @@
                             <div class="fieldDescription">If enabled, a notification will be sent when a video starts transcoding.</div>
                         </div>
                         <div class="inputContainer">
-                            <input is="emby-input" type="text" id="txtMessageText" label="Message Text:" data-config-key="MessageText" />
-                            <div class="fieldDescription">The text to display when transcoding starts. Use {reason} to include the transcode reason.</div>
+                            <input is="emby-input" type="text" id="txtMessageTextClientLimitation" label="Client Limitation Message:" data-config-key="MessageTextClientLimitation" />
+                            <div class="fieldDescription">Message to show when transcoding is due to client incompatibility. Use {reason} for details.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtMessageTextBandwidthLimitation" label="Bandwidth Limitation Message:" data-config-key="MessageTextBandwidthLimitation" />
+                            <div class="fieldDescription">Message to show when transcoding is due to quality/bandwidth settings. Use {reason} for details.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtMessageText" label="Fallback Message Text:" data-config-key="MessageText" />
+                            <div class="fieldDescription">The text to display for any other transcode reason. Use {reason} to include the transcode reason.</div>
                         </div>
                         <div class="inputContainer">
                             <input is="emby-input" type="number" id="numMaxNotifications" label="Max Notifications per Session:" data-config-key="MaxNotifications" />
@@ -173,6 +278,46 @@
                             <span>Reset All Users</span>
                         </button>
                     </div>
+
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <h2 style="margin-top: 0;">External Standalone Web Page</h2>
+                        <div id="webServerStatusContainer"></div>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableExternalWebServer" data-config-key="EnableExternalWebServer" /><span>Enable External Web Server</span></label>
+                            <div class="fieldDescription">Hosts a simple, standalone web page on a different port for controlling the watch time limiter, completely outside of the Emby UI.</div>
+                        </div>
+
+                        <div class="netsh-command-box">
+                            <h3>Windows Setup Requirement</h3>
+                            <p>To use the external web server on Windows, you must run the following command in Command Prompt **as an Administrator**. This is a one-time setup to grant Emby permission to use the network port.</p>
+                            <code id="netshCommand">netsh http add urlacl url=http://*:9988/ user="Everyone"</code>
+                        </div>
+
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="numExternalWebServerPort" label="Web Server Port:" data-config-key="ExternalWebServerPort" />
+                            <div class="fieldDescription">The port for the external web server. You will access it at http://[Your-Emby-IP]:[Port]. Requires a server restart to change.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="password" id="txtExternalWebServerPassword" label="Web Server Password:" data-config-key="ExternalWebServerPassword" />
+                            <div class="fieldDescription">A simple password required to access and use the external web page.</div>
+                        </div>
+                    </div>
+
+
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <h2 style="margin-top: 0;">External API Control</h2>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnablePublicApi" data-config-key="EnablePublicApi" /><span>Enable Public API</span></label>
+                            <div class="fieldDescription">Allow control of the watch time limiter via external requests using the API key below.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtApiKey" label="API Key:" data-config-key="ApiKey" readonly />
+                        </div>
+                        <button is="emby-button" type="button" class="raised" id="btnGenerateApiKey">
+                            <span>Generate New Key</span>
+                        </button>
+                    </div>
+
                 </div>
 
                 <div id="loggingPage" class="hide">
@@ -186,6 +331,87 @@
                         <div class="fieldDescription">Shows the last 200 events, such as when users hit their time limit or trigger a transcode.</div>
                         <div id="logContainer" class="logging-list" style="margin-top:1.5em;">
                         </div>
+                    </div>
+                </div>
+
+                <!-- ADDED THIS NEW PAGE -->
+                <div id="helpPage" class="hide">
+                    <div class="paper-card help-page" style="padding: 1.5em 2em; margin-top: 2em;">
+                        <h2 style="margin-top: 0;">Watching Eye Plugin Guide</h2>
+                        <p>This plugin provides two main functions: notifying users about video transcodes and managing user watch time with a flexible limiter.</p>
+
+                        <h2>External API System</h2>
+                        <p>The plugin exposes a public API to allow external scripts, dashboards, or applications to monitor and control user watch time. To use the API, you must first generate an API key on the "Watch Time Limiter" tab.</p>
+
+                        <h3>Authentication</h3>
+                        <p>All API requests require **two** forms of authentication:</p>
+                        <ul>
+                            <li><strong>Server Authentication:</strong> You must include a main API key from your Emby server's dashboard (under Dashboard -> API Keys). This authenticates you with the server itself. The recommended method is to send it as a URL parameter: <code>?api_key=YOUR_SERVER_KEY</code>.</li>
+                            <li><strong>Plugin Authorization:</strong> You must include the API key generated within this plugin. This authorizes your request specifically for the Watching Eye plugin. This key must be sent as an HTTP header: <code>X-WatchingEye-Api-Key</code>.</li>
+                        </ul>
+
+                        <h3>API Endpoints</h3>
+                        <p>All endpoints are relative to your server's base URL (e.g., <code>http://your-server:8096</code>).</p>
+
+                        <hr style="margin: 2em 0;">
+
+                        <h3>GET /WatchingEye/Public/Status</h3>
+                        <p>Gets the current watch time status for all users who are configured in the Watch Time Limiter.</p>
+                        <p><strong>Example Response:</strong></p>
+                        <pre>[
+    {
+        "UserId": "a1b2c3d4...",
+        "Username": "TestUser",
+        "DailyLimitMinutes": 120,
+        "WeeklyLimitHours": 20,
+        "MonthlyLimitHours": 80,
+        "YearlyLimitHours": 0,
+        "SecondsWatchedDaily": 3720.5,
+        "SecondsWatchedWeekly": 14882.1,
+        "SecondsWatchedMonthly": 59528.4,
+        "SecondsWatchedYearly": 59528.4,
+        "TimeOutUntil": "0001-01-01T00:00:00Z"
+    }
+]</pre>
+
+                        <hr style="margin: 2em 0;">
+
+                        <h3>POST /WatchingEye/Public/ExtendTime</h3>
+                        <p>Adds a specified number of minutes to a user's allowed watch time for all active limit periods (daily, weekly, etc.). This is useful for providing "time credits".</p>
+                        <p><strong>Request Body:</strong></p>
+                        <pre>{
+    "UserId": "YOUR_USER_ID_HERE",
+    "Minutes": 60
+}</pre>
+
+                        <hr style="margin: 2em 0;">
+
+                        <h3>POST /WatchingEye/Public/TimeOutUser</h3>
+                        <p>Temporarily blocks a user from playback for a specified number of minutes. This will immediately stop any active playback for the user.</p>
+                        <p><strong>Request Body:</strong></p>
+                        <pre>{
+    "UserId": "YOUR_USER_ID_HERE",
+    "Minutes": 15
+}</pre>
+
+                        <hr style="margin: 2em 0;">
+
+                        <h3>POST /WatchingEye/Public/ClearTimeOut</h3>
+                        <p>Removes an active time-out for a user, allowing them to resume playback immediately (if they are not over their regular time limit).</p>
+                        <p><strong>Request Body:</strong></p>
+                        <pre>{
+    "UserId": "YOUR_USER_ID_HERE"
+}</pre>
+
+                        <hr style="margin: 2em 0;">
+
+                        <h3>POST /WatchingEye/Public/ResetUserTime</h3>
+                        <p>Resets all watch time counters for a single specified user to zero.</p>
+                        <p><strong>Request Body:</strong></p>
+                        <pre>{
+    "UserId": "YOUR_USER_ID_HERE"
+}</pre>
+
                     </div>
                 </div>
 
