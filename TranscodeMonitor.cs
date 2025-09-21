@@ -4,9 +4,11 @@ using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Session;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.Entities;
 
 namespace WatchingEye
 {
@@ -14,19 +16,25 @@ namespace WatchingEye
     {
         private static ISessionManager? _sessionManager;
         private static ILogger? _logger;
+        private static ILibraryManager? _libraryManager;
         private static bool _isRunning;
+
+        private static List<string>? _excludedLibraryPathsCache;
+        private static string _cachedConfigVersion = string.Empty;
+        private static readonly object _cacheLock = new object();
 
         private static readonly ConcurrentDictionary<string, int> _transcodeNotificationsSent = new();
         private static readonly ConcurrentDictionary<string, int> _directPlayNotificationsSent = new();
         private static readonly ConcurrentDictionary<string, int> _playbackStartNotificationsSent = new();
 
-        public static void Start(ISessionManager sessionManager, ILogger logger)
+        public static void Start(ISessionManager sessionManager, ILogger logger, ILibraryManager libraryManager)
         {
             if (_isRunning)
                 return;
 
             _sessionManager = sessionManager;
             _logger = logger;
+            _libraryManager = libraryManager;
             _sessionManager.PlaybackStart += OnPlaybackStart;
             _sessionManager.PlaybackStopped += OnPlaybackStopped;
 
@@ -71,8 +79,68 @@ namespace WatchingEye
                 var config = Plugin.Instance?.Configuration;
                 var session = e.Session;
 
-                if (session == null || config == null || _logger == null || string.IsNullOrEmpty(session.UserId))
+                if (session == null || config == null || _logger == null || _sessionManager == null || _libraryManager == null || string.IsNullOrEmpty(session.UserId) || session.NowPlayingItem == null)
                     return;
+
+                if (config.ExcludedUserIds.Contains(session.UserId)) return;
+                if (config.ExcludedClients.Contains(session.Client, StringComparer.OrdinalIgnoreCase)) return;
+
+                lock (_cacheLock)
+                {
+                    if (config.ConfigurationVersion != _cachedConfigVersion)
+                    {
+                        _logger.Info("[TranscodeMonitor] Configuration has changed, rebuilding excluded library path cache.");
+                        _excludedLibraryPathsCache = new List<string>();
+                        var excludedIds = new HashSet<string>(config.ExcludedLibraryIds);
+                        if (excludedIds.Any())
+                        {
+                            var libraries = _libraryManager.GetVirtualFolders();
+                            foreach (var library in libraries)
+                            {
+                                if (excludedIds.Contains(library.Id.ToString()))
+                                {
+                                    _excludedLibraryPathsCache.AddRange(library.Locations);
+                                }
+                            }
+                        }
+                        _cachedConfigVersion = config.ConfigurationVersion;
+                    }
+                }
+
+                if (_excludedLibraryPathsCache != null && _excludedLibraryPathsCache.Any())
+                {
+                    var fullItem = _libraryManager.GetItemById(session.NowPlayingItem.Id);
+                    if (fullItem != null && !string.IsNullOrEmpty(fullItem.Path))
+                    {
+                        if (_excludedLibraryPathsCache.Any(p => fullItem.Path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            return; 
+                        }
+                    }
+                }
+
+                if (config.EnableTranscodeBlocking && session.TranscodingInfo != null && !string.IsNullOrWhiteSpace(config.BlockedTranscodeFormats))
+                {
+                    var blockedFormats = new HashSet<string>(config.BlockedTranscodeFormats.Split(',').Select(f => f.Trim()), StringComparer.OrdinalIgnoreCase);
+                    var sourceContainer = session.NowPlayingItem.Container;
+
+                    if (!string.IsNullOrEmpty(sourceContainer) && blockedFormats.Contains(sourceContainer))
+                    {
+                        _logger.Info($"[TranscodeMonitor] Blocking transcode for user '{session.UserName}' on client '{session.Client}'. Source format '{sourceContainer}' is on the blocklist.");
+
+                        var message = new MessageCommand
+                        {
+                            Header = "Playback Blocked",
+                            Text = $"Transcoding from the '{sourceContainer.ToUpper()}' container is not permitted by the server administrator.",
+                            TimeoutMs = config.EnableConfirmationButton ? null : (int?)10000
+                        };
+
+                        _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
+                        _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
+
+                        return;
+                    }
+                }
 
                 if (config.EnableWatchTimeLimiter)
                 {
@@ -83,12 +151,6 @@ namespace WatchingEye
                         return;
                     }
                 }
-
-                if (config.ExcludedUserIds.Contains(session.UserId))
-                    return;
-
-                if (config.ExcludedClients.Contains(session.Client, StringComparer.OrdinalIgnoreCase))
-                    return;
 
                 _ = Task.Run(async () =>
                 {

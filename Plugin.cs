@@ -13,6 +13,7 @@ using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using WatchingEye.Api;
+using MediaBrowser.Controller.Library;
 
 namespace WatchingEye
 {
@@ -23,6 +24,7 @@ namespace WatchingEye
         private readonly IJsonSerializer _jsonSerializer;
         private readonly IApplicationPaths _appPaths;
         private readonly INotificationManager _notificationManager;
+        private readonly ILibraryManager _libraryManager;
         public static Plugin? Instance { get; private set; }
         private ExternalWebServer? _externalWebServer;
         public static string ExternalWebServerStatus { get; private set; } = "Not Enabled";
@@ -31,7 +33,7 @@ namespace WatchingEye
         public override string Description => "A plugin to monitor and limit user watch time, with optional transcode notifications.";
         public override Guid Id => Guid.Parse("e8c3b1b3-4f56-4f38-a28a-2e6c5a043007");
 
-        public Plugin(IApplicationPaths appPaths, IXmlSerializer xmlSerializer, ISessionManager sessionManager, ILogManager logManager, IJsonSerializer jsonSerializer, INotificationManager notificationManager)
+        public Plugin(IApplicationPaths appPaths, IXmlSerializer xmlSerializer, ISessionManager sessionManager, ILogManager logManager, IJsonSerializer jsonSerializer, INotificationManager notificationManager, ILibraryManager libraryManager)
             : base(appPaths, xmlSerializer)
         {
             Instance = this;
@@ -40,6 +42,7 @@ namespace WatchingEye
             _jsonSerializer = jsonSerializer;
             _appPaths = appPaths;
             _notificationManager = notificationManager;
+            _libraryManager = libraryManager;
         }
 
         public static bool UpdateUserLimits(string userId, int dailyMinutes, int weeklyHours, int monthlyHours)
@@ -56,6 +59,15 @@ namespace WatchingEye
             Instance.UpdateConfiguration(Instance.Configuration);
             Instance._logger.Info($"[ExternalWebServer] Updated limits for user {userToUpdate.Username}.");
             return true;
+        }
+
+        public override void UpdateConfiguration(BasePluginConfiguration configuration)
+        {
+            if (configuration is PluginConfiguration newConfig)
+            {
+                newConfig.ConfigurationVersion = Guid.NewGuid().ToString();
+            }
+            base.UpdateConfiguration(configuration);
         }
 
         public IEnumerable<PluginPageInfo> GetPages()
@@ -77,7 +89,7 @@ namespace WatchingEye
 
         public void Run()
         {
-            TranscodeMonitor.Start(_sessionManager, _logger);
+            TranscodeMonitor.Start(_sessionManager, _logger, _libraryManager);
             WatchTimeManager.Start(_sessionManager, _logger, _appPaths, _jsonSerializer);
             LogManager.Start(_logger, _jsonSerializer, _appPaths);
             NotificationService.Start(_logger, _notificationManager);

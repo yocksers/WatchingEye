@@ -1,4 +1,4 @@
-﻿﻿using MediaBrowser.Model.Plugins;
+﻿using MediaBrowser.Model.Plugins;
 using System;
 using System.Collections.Generic;
 
@@ -68,6 +68,7 @@ namespace WatchingEye
 
     public class PluginConfiguration : BasePluginConfiguration
     {
+        public string ConfigurationVersion { get; set; } = Guid.NewGuid().ToString();
         public bool EnableTranscodeWarning { get; set; } = true;
         public string MessageText { get; set; } = "This video is being transcoded. Reason: {reason}";
         public string MessageTextClientLimitation { get; set; } = "This video is transcoding because your device doesn't support the format ({reason}). For a better experience, try a different client like Emby Theater or a modern web browser.";
@@ -76,6 +77,9 @@ namespace WatchingEye
         public bool NotifyOnAudioOnlyTranscode { get; set; } = true;
         public int InitialDelaySeconds { get; set; } = 2;
         public int DelayBetweenMessagesSeconds { get; set; } = 5;
+
+        public bool EnableTranscodeBlocking { get; set; } = false;
+        public string BlockedTranscodeFormats { get; set; } = "mkv,ts,avi";
 
         public bool NotifyOnDirectPlay { get; set; } = false;
         public string DirectPlayMessageText { get; set; } = "Direct Play active. Enjoy the best possible quality!";
@@ -89,6 +93,7 @@ namespace WatchingEye
         public bool EnableConfirmationButton { get; set; } = false;
         public List<string> ExcludedUserIds { get; set; } = new List<string>();
         public List<string> ExcludedClients { get; set; } = new List<string>();
+        public List<string> ExcludedLibraryIds { get; set; } = new List<string>();
 
         public bool EnableWatchTimeLimiter { get; set; } = false;
         public bool EnableWatchLimitNotifications { get; set; } = false;
@@ -108,6 +113,7 @@ namespace WatchingEye
             LimitedUsers = new List<LimitedUser>();
             ExcludedUserIds = new List<string>();
             ExcludedClients = new List<string>();
+            ExcludedLibraryIds = new List<string>();
         }
     }
 }

@@ -117,13 +117,16 @@
             this.editingUserId = null;
             this.allUsers = [];
             this.allClients = [];
+            this.allLibraries = [];
 
             Promise.all([
                 ApiClient.getUsers(),
-                getClientList()
-            ]).then(([users, clients]) => {
+                getClientList(),
+                ApiClient.getVirtualFolders()
+            ]).then(([users, clients, virtualFolders]) => {
                 this.allUsers = users;
                 this.allClients = clients;
+                this.allLibraries = virtualFolders.Items;
             });
 
             view.querySelector('#numExternalWebServerPort').addEventListener('input', (e) => {
@@ -149,7 +152,6 @@
                     view.querySelectorAll('.localnav .nav-button').forEach(b => b.classList.remove('ui-btn-active'));
                     target.classList.add('ui-btn-active');
 
-                    // THE ONLY CHANGE IS ADDING #helpPage TO THIS SELECTOR
                     view.querySelectorAll('#notificationsPage, #limiterPage, #loggingPage, #helpPage').forEach(page => {
                         page.classList.toggle('hide', page.id !== targetId);
                     });
@@ -603,6 +605,7 @@
         renderExclusionLists(view, config) {
             const usersContainer = view.querySelector('#excludedUsersContainer');
             const clientsContainer = view.querySelector('#excludedClientsContainer');
+            const librariesContainer = view.querySelector('#excludedLibrariesContainer');
 
             usersContainer.innerHTML = this.allUsers.map(user => {
                 const isChecked = (config.ExcludedUserIds || []).includes(user.Id);
@@ -612,6 +615,14 @@
             clientsContainer.innerHTML = this.allClients.map(client => {
                 const isChecked = (config.ExcludedClients || []).some(c => c.toLowerCase() === client.toLowerCase());
                 return `<label><input is="emby-checkbox" type="checkbox" class="excludedClient" data-client="${client}" ${isChecked ? 'checked' : ''} /><span>${client}</span></label>`;
+            }).join('');
+
+            const ignoredLibraryTypes = ['collections', 'playlists', 'boxsets'];
+            const displayLibraries = this.allLibraries.filter(lib => !lib.CollectionType || !ignoredLibraryTypes.includes(lib.CollectionType.toLowerCase()));
+
+            librariesContainer.innerHTML = displayLibraries.map(lib => {
+                const isChecked = (config.ExcludedLibraryIds || []).includes(lib.Id);
+                return `<label><input is="emby-checkbox" type="checkbox" class="excludedLibrary" data-library-id="${lib.Id}" ${isChecked ? 'checked' : ''} /><span>${lib.Name}</span></label>`;
             }).join('');
         }
 
@@ -660,12 +671,13 @@
 
             this.config.ExcludedUserIds = Array.from(view.querySelectorAll('.excludedUser:checked')).map(cb => cb.getAttribute('data-userid'));
             this.config.ExcludedClients = Array.from(view.querySelectorAll('.excludedClient:checked')).map(cb => cb.getAttribute('data-client'));
+            this.config.ExcludedLibraryIds = Array.from(view.querySelectorAll('.excludedLibrary:checked')).map(cb => cb.getAttribute('data-library-id'));
 
 
             updatePluginConfiguration(this.config).then(result => {
                 loading.hide();
                 Dashboard.processPluginConfigurationUpdateResult(result);
-                toast('Configuration saved. A server restart is required for some changes to take effect.');
+                toast('Configuration saved.');
                 this.loadData(view);
             }).catch(() => {
                 loading.hide();

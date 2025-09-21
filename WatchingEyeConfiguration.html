@@ -109,8 +109,21 @@
                 white-space: pre-wrap;
             }
 
+        .firewall-info-box {
+            background-color: rgba(3, 169, 244, 0.1);
+            border: 1px solid rgba(3, 169, 244, 0.5);
+            border-left-width: 5px;
+            border-left-color: #03a9f4;
+            padding: 1em 1.5em;
+            margin-top: 1em;
+            border-radius: 5px;
+        }
 
-        /* Styles for the new help page */
+            .firewall-info-box h3 {
+                margin-top: 0;
+                color: #03a9f4;
+            }
+
         .help-page h2 {
             margin-top: 1.5em;
             margin-bottom: 0.5em;
@@ -196,6 +209,19 @@
                         </div>
                     </div>
 
+                    <!-- ADDED: New section for transcode blocking -->
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <h2 style="margin-top: 0;">Transcode Blocking</h2>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableTranscodeBlocking" data-config-key="EnableTranscodeBlocking" /><span>Enable Transcode Blocking</span></label>
+                            <div class="fieldDescription">If enabled, playback will be stopped if a transcode is triggered from a blocked source format.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtBlockedTranscodeFormats" label="Blocked Source Formats:" data-config-key="BlockedTranscodeFormats" />
+                            <div class="fieldDescription">Comma-separated list of source container formats to block from transcoding (e.g., mkv,ts,avi,webm). This is not case-sensitive.</div>
+                        </div>
+                    </div>
+
                     <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
                         <h2 style="margin-top: 0;">Direct Play Notification</h2>
                         <div class="checkboxContainer">
@@ -243,6 +269,12 @@
                             <div id="excludedClientsContainer" class="exclusion-list"></div>
                             <div class="fieldDescription">Notifications will not be sent to these clients. This is case-insensitive.</div>
                         </div>
+
+                        <div class="inputContainer">
+                            <label class="label-text-field">Excluded Libraries:</label>
+                            <div id="excludedLibrariesContainer" class="exclusion-list"></div>
+                            <div class="fieldDescription">Notifications and transcode blocking will not apply to items in these libraries.</div>
+                        </div>
                     </div>
                 </div>
 
@@ -284,7 +316,7 @@
                         <div id="webServerStatusContainer"></div>
                         <div class="checkboxContainer">
                             <label><input is="emby-checkbox" type="checkbox" id="chkEnableExternalWebServer" data-config-key="EnableExternalWebServer" /><span>Enable External Web Server</span></label>
-                            <div class="fieldDescription">Hosts a simple, standalone web page on a different port for controlling the watch time limiter, completely outside of the Emby UI.</div>
+                            <div class="fieldDescription">Hosts a simple, standalone web page on a different port for controlling the watch time limiter. Requires a server restart to enable or disable.</div>
                         </div>
 
                         <div class="netsh-command-box">
@@ -293,13 +325,18 @@
                             <code id="netshCommand">netsh http add urlacl url=http://*:9988/ user="Everyone"</code>
                         </div>
 
+                        <div class="firewall-info-box">
+                            <h3>Firewall Configuration</h3>
+                            <p>To access this web page from other devices on your network, you may need to create an inbound rule in your firewall (e.g., Windows Defender Firewall) to allow connections on the specified port.</p>
+                        </div>
+
                         <div class="inputContainer">
                             <input is="emby-input" type="number" id="numExternalWebServerPort" label="Web Server Port:" data-config-key="ExternalWebServerPort" />
                             <div class="fieldDescription">The port for the external web server. You will access it at http://[Your-Emby-IP]:[Port]. Requires a server restart to change.</div>
                         </div>
                         <div class="inputContainer">
                             <input is="emby-input" type="password" id="txtExternalWebServerPassword" label="Web Server Password:" data-config-key="ExternalWebServerPassword" />
-                            <div class="fieldDescription">A simple password required to access and use the external web page.</div>
+                            <div class="fieldDescription">A simple password required to access and use the external web page. Requires a server restart to take effect.</div>
                         </div>
                     </div>
 
