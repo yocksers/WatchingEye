@@ -85,12 +85,13 @@ namespace WatchingEye
                 if (config.ExcludedUserIds.Contains(session.UserId)) return;
                 if (config.ExcludedClients.Contains(session.Client, StringComparer.OrdinalIgnoreCase)) return;
 
+                List<string> currentExcludedPaths;
                 lock (_cacheLock)
                 {
                     if (config.ConfigurationVersion != _cachedConfigVersion)
                     {
                         _logger.Info("[TranscodeMonitor] Configuration has changed, rebuilding excluded library path cache.");
-                        _excludedLibraryPathsCache = new List<string>();
+                        var newCache = new List<string>();
                         var excludedIds = new HashSet<string>(config.ExcludedLibraryIds);
                         if (excludedIds.Any())
                         {
@@ -99,22 +100,24 @@ namespace WatchingEye
                             {
                                 if (excludedIds.Contains(library.Id.ToString()))
                                 {
-                                    _excludedLibraryPathsCache.AddRange(library.Locations);
+                                    newCache.AddRange(library.Locations);
                                 }
                             }
                         }
+                        _excludedLibraryPathsCache = newCache;
                         _cachedConfigVersion = config.ConfigurationVersion;
                     }
+                    currentExcludedPaths = _excludedLibraryPathsCache ?? new List<string>();
                 }
 
-                if (_excludedLibraryPathsCache != null && _excludedLibraryPathsCache.Any())
+                if (currentExcludedPaths.Any())
                 {
                     var fullItem = _libraryManager.GetItemById(session.NowPlayingItem.Id);
                     if (fullItem != null && !string.IsNullOrEmpty(fullItem.Path))
                     {
-                        if (_excludedLibraryPathsCache.Any(p => fullItem.Path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+                        if (currentExcludedPaths.Any(p => fullItem.Path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
                         {
-                            return; 
+                            return;
                         }
                     }
                 }
@@ -132,7 +135,7 @@ namespace WatchingEye
                         {
                             Header = "Playback Blocked",
                             Text = $"Transcoding from the '{sourceContainer.ToUpper()}' container is not permitted by the server administrator.",
-                            TimeoutMs = config.EnableConfirmationButton ? null : (int?)10000
+                            TimeoutMs = config.EnableConfirmationButtonOnTranscodeBlock ? null : (int?)10000
                         };
 
                         _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
@@ -140,6 +143,34 @@ namespace WatchingEye
 
                         return;
                     }
+                }
+
+                if (config.EnableResolutionBlocking && session.TranscodingInfo != null && session.NowPlayingItem.Height > config.MaxTranscodingResolution)
+                {
+                    _logger.Info($"[TranscodeMonitor] Blocking transcode for user '{session.UserName}' on client '{session.Client}'. Resolution '{session.NowPlayingItem.Height}p' is over the limit of '{config.MaxTranscodingResolution}p'.");
+
+                    var text = config.MessageTextResolutionBlocked;
+                    if (string.IsNullOrWhiteSpace(text))
+                    {
+                        text = $"Transcoding video with a resolution of {session.NowPlayingItem.Height}p is not permitted. The maximum allowed resolution is {config.MaxTranscodingResolution}p.";
+                    }
+
+                    text = text.Replace("{height}", session.NowPlayingItem.Height.ToString())
+                               .Replace("{max}", config.MaxTranscodingResolution.ToString());
+
+                    var useConfirmation = config.EnableConfirmationButtonOnResolutionBlock;
+
+                    var message = new MessageCommand
+                    {
+                        Header = "Playback Blocked",
+                        Text = text,
+                        TimeoutMs = useConfirmation ? null : (int?)10000
+                    };
+
+                    _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
+                    _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
+
+                    return;
                 }
 
                 if (config.EnableWatchTimeLimiter)
@@ -177,7 +208,7 @@ namespace WatchingEye
             {
                 await SendNotificationAsync(session, "Playback Started", config.PlaybackStartMessageText,
                     config.PlaybackStartInitialDelaySeconds, config.PlaybackStartMaxNotifications,
-                    config.PlaybackStartDelayBetweenMessagesSeconds, config.EnableConfirmationButton, _playbackStartNotificationsSent);
+                    config.PlaybackStartDelayBetweenMessagesSeconds, config.EnableConfirmationButtonOnPlaybackStart, _playbackStartNotificationsSent);
             }
         }
 
@@ -188,7 +219,7 @@ namespace WatchingEye
                 if (config.NotifyOnDirectPlay && !string.IsNullOrWhiteSpace(config.DirectPlayMessageText))
                 {
                     await SendNotificationAsync(session, "Direct Play", config.DirectPlayMessageText,
-                                                config.InitialDelaySeconds, 1, 0, config.EnableConfirmationButton, _directPlayNotificationsSent);
+                                                config.InitialDelaySeconds, 1, 0, config.EnableConfirmationButtonOnDirectPlay, _directPlayNotificationsSent);
                 }
                 return;
             }
@@ -218,7 +249,7 @@ namespace WatchingEye
             LogManager.LogTranscode(session, friendlyReasons);
 
             await SendNotificationAsync(session, "Transcode Warning", message, config.InitialDelaySeconds,
-                config.MaxNotifications, config.DelayBetweenMessagesSeconds, config.EnableConfirmationButton, _transcodeNotificationsSent);
+                config.MaxNotifications, config.DelayBetweenMessagesSeconds, config.EnableConfirmationButtonOnTranscodeWarning, _transcodeNotificationsSent);
         }
 
         private static async Task SendNotificationAsync(SessionInfo session, string header, string text, int initialDelay, int maxNotifications, int delayBetween, bool useConfirmationButton, ConcurrentDictionary<string, int> sentCounts)

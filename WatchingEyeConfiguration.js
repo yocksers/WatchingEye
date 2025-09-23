@@ -119,16 +119,6 @@
             this.allClients = [];
             this.allLibraries = [];
 
-            Promise.all([
-                ApiClient.getUsers(),
-                getClientList(),
-                ApiClient.getVirtualFolders()
-            ]).then(([users, clients, virtualFolders]) => {
-                this.allUsers = users;
-                this.allClients = clients;
-                this.allLibraries = virtualFolders.Items;
-            });
-
             view.querySelector('#numExternalWebServerPort').addEventListener('input', (e) => {
                 const port = e.target.value || 9988;
                 view.querySelector('#netshCommand').textContent = `netsh http add urlacl url=http://*:${port}/ user="Everyone"`;
@@ -313,9 +303,6 @@
                     }).catch(() => toast({ type: 'error', text: 'Error resetting time.' }));
                 }
             });
-
-
-            this.loadData(this.view);
         }
 
         getLimitedUserDisplayHtml(user, status) {
@@ -628,8 +615,17 @@
 
         loadData(view) {
             loading.show();
-            getPluginConfiguration().then(config => {
+            Promise.all([
+                getPluginConfiguration(),
+                ApiClient.getUsers(),
+                getClientList(),
+                ApiClient.getVirtualFolders()
+            ]).then(([config, users, clients, virtualFolders]) => {
                 this.config = config;
+                this.allUsers = users;
+                this.allClients = clients;
+                this.allLibraries = virtualFolders.Items;
+
                 view.querySelectorAll('[data-config-key]').forEach(el => {
                     const key = el.getAttribute('data-config-key');
                     const value = config[key];
@@ -640,6 +636,10 @@
                     }
                 });
 
+                const portInput = view.querySelector('#numExternalWebServerPort');
+                const port = portInput.value || 9988;
+                view.querySelector('#netshCommand').textContent = `netsh http add urlacl url=http://*:${port}/ user="Everyone"`;
+
                 if (config.EnableExternalWebServer) {
                     renderWebServerStatus(view);
                 }
@@ -648,6 +648,13 @@
                 this.renderLimitedUsers(view, this.config);
                 this.renderExclusionLists(view, this.config);
                 loading.hide();
+            }).catch(err => {
+                loading.hide();
+                console.error('Error loading Watching Eye configuration page:', err);
+                toast({
+                    type: 'error',
+                    text: 'There was an error loading page data. Please try refreshing the page.'
+                });
             });
         }
 
@@ -657,7 +664,7 @@
             view.querySelectorAll('[data-config-key]').forEach(el => {
                 const key = el.getAttribute('data-config-key');
 
-                if (Object.prototype.hasOwnProperty.call(this.config, key) && !Array.isArray(this.config[key])) {
+                if (!Array.isArray(this.config[key])) {
                     if (el.type === 'checkbox') {
                         this.config[key] = el.checked;
                     } else if (el.type === 'number') {

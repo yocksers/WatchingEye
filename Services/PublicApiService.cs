@@ -12,28 +12,30 @@ namespace WatchingEye
 
         private void EnsureApiKeyValid()
         {
+            var genericError = "Unauthorized: Invalid API Key or configuration.";
+
             if (Plugin.Instance == null)
             {
-                throw new InvalidOperationException("The Watching Eye plugin instance has not been initialized. Please restart the server.");
+                throw new UnauthorizedAccessException(genericError);
             }
 
             var apiKey = Plugin.Instance.Configuration.ApiKey;
 
             if (string.IsNullOrWhiteSpace(apiKey))
             {
-                throw new InvalidOperationException("Forbidden: API Key has not been configured in the plugin settings.");
+                throw new UnauthorizedAccessException(genericError);
             }
 
             if (Request == null)
             {
-                throw new InvalidOperationException("The IRequest context was not injected into the API service. This may indicate a server or plugin framework incompatibility.");
+                throw new InvalidOperationException("The IRequest context was not injected into the API service.");
             }
 
             var providedKey = Request.Headers.Get(ApiKeyHeader);
 
             if (string.IsNullOrWhiteSpace(providedKey) || !string.Equals(providedKey, apiKey))
             {
-                throw new UnauthorizedAccessException("Unauthorized: Invalid API Key provided.");
+                throw new UnauthorizedAccessException(genericError);
             }
         }
 

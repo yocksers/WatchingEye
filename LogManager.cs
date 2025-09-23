@@ -7,6 +7,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace WatchingEye
 {
@@ -26,6 +27,10 @@ namespace WatchingEye
         private static IJsonSerializer? _jsonSerializer;
         private static string? _logFilePath;
         private static bool _isRunning = false;
+        private static Timer? _saveTimer;
+        private static bool _isDirty = false;
+
+        private static readonly object _saveLock = new object();
 
         private static readonly ConcurrentQueue<LogEntry> _logEntries = new();
         private const int MaxLogEntries = 200;
@@ -39,12 +44,23 @@ namespace WatchingEye
             _logFilePath = Path.Combine(appPaths.PluginConfigurationsPath, "WatchingEye.Logging.json");
 
             LoadLogs();
+
+            _saveTimer = new Timer(OnSaveTimerElapsed, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
             _isRunning = true;
             _logger.Info("[LogManager] Started.");
         }
 
+        private static void OnSaveTimerElapsed(object? state)
+        {
+            if (_isDirty)
+            {
+                SaveLogs();
+            }
+        }
+
         public static void Stop()
         {
+            _saveTimer?.Dispose();
             SaveLogs();
             _isRunning = false;
             _logger?.Info("[LogManager] Stopped.");
@@ -80,7 +96,8 @@ namespace WatchingEye
             {
                 _logEntries.TryDequeue(out _);
             }
-            SaveLogs();
+
+            _isDirty = true;
         }
 
         public static IEnumerable<LogEntry> GetLogEntries()
@@ -131,14 +148,23 @@ namespace WatchingEye
         {
             if (_jsonSerializer == null || string.IsNullOrEmpty(_logFilePath)) return;
 
-            try
+            lock (_saveLock)
             {
-                var json = _jsonSerializer.SerializeToString(_logEntries.ToList());
-                File.WriteAllText(_logFilePath, json);
-            }
-            catch (Exception ex)
-            {
-                _logger?.ErrorException("[LogManager] Error saving logging data.", ex);
+                try
+                {
+                    var json = _jsonSerializer.SerializeToString(_logEntries.ToList());
+                    var tempFilePath = _logFilePath + ".tmp";
+
+                    File.WriteAllText(tempFilePath, json);
+
+                    File.Replace(tempFilePath, _logFilePath, null);
+
+                    _isDirty = false;
+                }
+                catch (Exception ex)
+                {
+                    _logger?.ErrorException("[LogManager] Error saving logging data.", ex);
+                }
             }
         }
     }

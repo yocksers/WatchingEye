@@ -1,4 +1,4 @@
-﻿<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow" data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true" data-bindheader="true" data-controller="__plugin/WatchingEyeConfigurationjs" data-title="Watching Eye">
+﻿﻿<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow" data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true" data-bindheader="true" data-controller="__plugin/WatchingEyeConfigurationjs" data-title="Watching Eye">
     <style>
         .disabled-item .listItemBody, .disabled-item .listItemBody .secondary {
             color: #999;
@@ -109,6 +109,21 @@
                 white-space: pre-wrap;
             }
 
+        .linux-info-box {
+            background-color: rgba(244, 158, 3, 0.1);
+            border: 1px solid rgba(244, 158, 3, 0.5);
+            border-left-width: 5px;
+            border-left-color: #f49e03;
+            padding: 1em 1.5em;
+            margin-top: 1em;
+            border-radius: 5px;
+        }
+
+            .linux-info-box h3 {
+                margin-top: 0;
+                color: #f49e03;
+            }
+
         .firewall-info-box {
             background-color: rgba(3, 169, 244, 0.1);
             border: 1px solid rgba(3, 169, 244, 0.5);
@@ -163,7 +178,7 @@
             margin-bottom: 0.5em;
         }
     </style>
-    <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
+    <div class="scrollSlider flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
         <div class="readOnlyContent auto-center" style="max-width: 1200px;">
             <h1 class="pageTitle">Watching Eye</h1>
 
@@ -188,6 +203,10 @@
                             <div class="fieldDescription">Message to show when transcoding is due to client incompatibility. Use {reason} for details.</div>
                         </div>
                         <div class="inputContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableConfirmationButtonOnTranscodeWarning" data-config-key="EnableConfirmationButtonOnTranscodeWarning" /><span>Show confirmation button for Transcode Warnings</span></label>
+                            <div class="fieldDescription">If enabled, transcode warning notifications will require manual dismissal.</div>
+                        </div>
+                        <div class="inputContainer">
                             <input is="emby-input" type="text" id="txtMessageTextBandwidthLimitation" label="Bandwidth Limitation Message:" data-config-key="MessageTextBandwidthLimitation" />
                             <div class="fieldDescription">Message to show when transcoding is due to quality/bandwidth settings. Use {reason} for details.</div>
                         </div>
@@ -209,12 +228,15 @@
                         </div>
                     </div>
 
-                    <!-- ADDED: New section for transcode blocking -->
                     <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
                         <h2 style="margin-top: 0;">Transcode Blocking</h2>
                         <div class="checkboxContainer">
                             <label><input is="emby-checkbox" type="checkbox" id="chkEnableTranscodeBlocking" data-config-key="EnableTranscodeBlocking" /><span>Enable Transcode Blocking</span></label>
                             <div class="fieldDescription">If enabled, playback will be stopped if a transcode is triggered from a blocked source format.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableConfirmationButtonOnTranscodeBlock" data-config-key="EnableConfirmationButtonOnTranscodeBlock" /><span>Show confirmation button for Transcode Block</span></label>
+                            <div class="fieldDescription">If enabled, blocked transcode messages for blocked formats will require manual dismissal.</div>
                         </div>
                         <div class="inputContainer">
                             <input is="emby-input" type="text" id="txtBlockedTranscodeFormats" label="Blocked Source Formats:" data-config-key="BlockedTranscodeFormats" />
@@ -223,9 +245,33 @@
                     </div>
 
                     <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <h2 style="margin-top: 0;">Resolution Blocking</h2>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableResolutionBlocking" data-config-key="EnableResolutionBlocking" /><span>Enable Resolution Blocking</span></label>
+                            <div class="fieldDescription">If enabled, playback will be stopped if a transcode is triggered for a video with a resolution higher than the specified limit.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="numMaxTranscodingResolution" label="Maximum Transcoding Resolution:" data-config-key="MaxTranscodingResolution" />
+                            <div class="fieldDescription">The maximum vertical resolution (e.g., 1080, 2160) to allow for transcoding.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtMessageTextResolutionBlocked" label="Resolution Block Message:" data-config-key="MessageTextResolutionBlocked" />
+                            <div class="fieldDescription">Custom message shown when a transcode is blocked due to resolution. Use {height} and {max} as placeholders.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableConfirmationButtonOnResolutionBlock" data-config-key="EnableConfirmationButtonOnResolutionBlock" /><span>Enable Confirmation Button for Resolution Block</span></label>
+                            <div class="fieldDescription">If enabled, the resolution block message will require manual dismissal.</div>
+                        </div>
+                    </div>
+
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
                         <h2 style="margin-top: 0;">Direct Play Notification</h2>
                         <div class="checkboxContainer">
                             <label><input is="emby-checkbox" type="checkbox" id="chkNotifyOnDirectPlay" data-config-key="NotifyOnDirectPlay" /><span>Notify on Direct Play</span></label>
+                        </div>
+                        <div class="inputContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableConfirmationButtonOnDirectPlay" data-config-key="EnableConfirmationButtonOnDirectPlay" /><span>Show confirmation button for Direct Play</span></label>
+                            <div class="fieldDescription">If enabled, direct play notifications will require manual dismissal.</div>
                         </div>
                         <div class="inputContainer">
                             <input is="emby-input" type="text" id="txtDirectPlayMessageText" label="Direct Play Message Text:" data-config-key="DirectPlayMessageText" />
@@ -236,6 +282,10 @@
                         <h2 style="margin-top: 0;">Playback Start Notification</h2>
                         <div class="checkboxContainer">
                             <label><input is="emby-checkbox" type="checkbox" id="chkEnablePlaybackStartNotification" data-config-key="EnablePlaybackStartNotification" /><span>Enable Playback Start Notification</span></label>
+                        </div>
+                        <div class="inputContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableConfirmationButtonOnPlaybackStart" data-config-key="EnableConfirmationButtonOnPlaybackStart" /><span>Show confirmation button for Playback Start</span></label>
+                            <div class="fieldDescription">If enabled, playback start notifications will require manual dismissal.</div>
                         </div>
                         <div class="inputContainer">
                             <input is="emby-input" type="text" id="txtPlaybackStartMessageText" label="Playback Start Message Text:" data-config-key="PlaybackStartMessageText" />
@@ -253,10 +303,6 @@
 
                     <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
                         <h2 style="margin-top: 0;">General Notification Settings</h2>
-                        <div class="checkboxContainer">
-                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableConfirmationButton" data-config-key="EnableConfirmationButton" /><span>Enable Confirmation Button</span></label>
-                            <div class="fieldDescription">If enabled, ALL notifications from this plugin will require manual dismissal (no timeout).</div>
-                        </div>
 
                         <div class="inputContainer">
                             <label class="label-text-field">Excluded Users:</label>
@@ -283,6 +329,11 @@
                         <div class="checkboxContainer">
                             <label><input is="emby-checkbox" type="checkbox" id="chkEnableWatchTimeLimiter" data-config-key="EnableWatchTimeLimiter" /><span>Enable Watch Time Limiter</span></label>
                             <div class="fieldDescription">If enabled, specified users will have a time limit on their watch time.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableConfirmationButtonOnWatchTimeLimit" data-config-key="EnableConfirmationButtonOnWatchTimeLimit" /><span>Show confirmation button for Watch Time Limit messages</span></label>
+                            <div class="fieldDescription">If enabled, messages sent by the watch time limiter will require manual dismissal.</div>
                         </div>
 
                         <div class="checkboxContainer">
@@ -325,9 +376,14 @@
                             <code id="netshCommand">netsh http add urlacl url=http://*:9988/ user="Everyone"</code>
                         </div>
 
+                        <div class="linux-info-box">
+                            <h3>Linux / Docker Setup</h3>
+                            <p>On Linux, "Access Denied" errors are less common but can occur if Emby is not run with sufficient permissions. For Docker users, you must map the port when creating your container. For example, add the following argument to your `docker run` command: <code>-p 9988:9988</code> (replacing 9988 with your chosen port).</p>
+                        </div>
+
                         <div class="firewall-info-box">
                             <h3>Firewall Configuration</h3>
-                            <p>To access this web page from other devices on your network, you may need to create an inbound rule in your firewall (e.g., Windows Defender Firewall) to allow connections on the specified port.</p>
+                            <p>To access this web page from other devices on your network, you may need to create an inbound rule in your firewall (e.g., Windows Defender Firewall, ufw) to allow connections on the specified TCP port.</p>
                         </div>
 
                         <div class="inputContainer">

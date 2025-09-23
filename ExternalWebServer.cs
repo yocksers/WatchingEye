@@ -1,6 +1,7 @@
 ﻿using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Serialization;
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -21,6 +22,9 @@ namespace WatchingEye
         private readonly string _password;
         private readonly int _port;
 
+        private static readonly ConcurrentDictionary<string, DateTime> _activeTokens = new();
+        private static Timer? _tokenCleanupTimer;
+
         public ExternalWebServer(ILogger logger, IJsonSerializer jsonSerializer, int port, string password)
         {
             _logger = logger;
@@ -37,6 +41,7 @@ namespace WatchingEye
         {
             try
             {
+                _tokenCleanupTimer = new Timer(CleanupExpiredTokens, null, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
                 _listener.Start();
                 var prefix = _listener.Prefixes.First();
                 _logger.Info($"[ExternalWebServer] Started and listening on {prefix}.");
@@ -45,7 +50,7 @@ namespace WatchingEye
             }
             catch (HttpListenerException ex) when (ex.ErrorCode == 5)
             {
-                var errorMsg = $"Error: Access Denied. Please run this command as an Administrator to grant permission: netsh http add urlacl url=http://*:{_port}/ user=\"Everyone\"";
+                var errorMsg = $"Error: Access Denied. On Windows, please run this command as an Administrator: netsh http add urlacl url=http://*:{_port}/ user=\"Everyone\". On Linux/Docker, ensure the port is available and Emby has network permissions. See the plugin configuration page for more details.";
                 _logger.Error(errorMsg);
                 return errorMsg;
             }
@@ -61,9 +66,20 @@ namespace WatchingEye
         {
             if (!_listener.IsListening) return;
             _cancellationTokenSource.Cancel();
+            _tokenCleanupTimer?.Dispose();
             _listener.Stop();
             _listener.Close();
             _logger.Info("[ExternalWebServer] Stopped.");
+        }
+
+        private void CleanupExpiredTokens(object? state)
+        {
+            var now = DateTime.UtcNow;
+            var expiredTokens = _activeTokens.Where(p => p.Value < now).Select(p => p.Key).ToList();
+            foreach (var token in expiredTokens)
+            {
+                _activeTokens.TryRemove(token, out _);
+            }
         }
 
         private async Task Listen(CancellationToken token)
@@ -113,7 +129,13 @@ namespace WatchingEye
                         apiRequest = _jsonSerializer.DeserializeFromString<ApiRequest>(requestBody);
                     }
 
-                    if (string.IsNullOrEmpty(_password) || apiRequest?.Password != _password)
+                    if (request.Url.AbsolutePath == "/api/login")
+                    {
+                        await HandleLoginRequest(apiRequest, response);
+                        return;
+                    }
+
+                    if (string.IsNullOrEmpty(_password) || apiRequest?.Token == null || !_activeTokens.TryGetValue(apiRequest.Token, out var expiry) || expiry < DateTime.UtcNow)
                     {
                         response.StatusCode = (int)HttpStatusCode.Unauthorized;
                         await WriteResponse(response, "{\"error\":\"Unauthorized\"}");
@@ -137,6 +159,25 @@ namespace WatchingEye
             {
                 response.OutputStream.Close();
             }
+        }
+
+        private async Task HandleLoginRequest(ApiRequest? apiRequest, HttpListenerResponse response)
+        {
+            if (string.IsNullOrEmpty(_password) || apiRequest?.Password != _password)
+            {
+                response.StatusCode = (int)HttpStatusCode.Unauthorized;
+                await WriteResponse(response, "{\"error\":\"Invalid password\"}");
+                return;
+            }
+
+            var token = Guid.NewGuid().ToString();
+            var expiry = DateTime.UtcNow.AddHours(8);
+            _activeTokens[token] = expiry;
+
+            var result = new { token, expires = expiry };
+            var jsonResponse = _jsonSerializer.SerializeToString(result);
+            response.StatusCode = (int)HttpStatusCode.OK;
+            await WriteResponse(response, jsonResponse);
         }
 
         private async Task HandleApiRequest(string path, ApiRequest? apiRequest, HttpListenerResponse response)
@@ -223,7 +264,8 @@ namespace WatchingEye
 
         private class ApiRequest
         {
-            public string Password { get; set; } = string.Empty;
+            public string? Password { get; set; }
+            public string? Token { get; set; }
             public string UserId { get; set; } = string.Empty;
             public int Minutes { get; set; }
             public int DailyLimitMinutes { get; set; }

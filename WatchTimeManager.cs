@@ -1,4 +1,4 @@
-﻿﻿using MediaBrowser.Common.Configuration;
+﻿using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Serialization;
@@ -25,7 +25,7 @@ namespace WatchingEye
         private static string? _watchTimeDataPath;
 
         private static bool _isRunning = false;
-        private static readonly int TimerIntervalSeconds = 5;
+        private static readonly int TimerIntervalSeconds = 15; // Increased from 5 to 15
 
         private static ConcurrentDictionary<string, UserWatchData> _userWatchData = new();
         private static readonly ConcurrentDictionary<string, DateTime> _sessionLastUpdate = new();
@@ -35,6 +35,8 @@ namespace WatchingEye
         private static readonly ConcurrentDictionary<string, HashSet<int>> _weeklyThresholdsNotified = new();
         private static readonly ConcurrentDictionary<string, HashSet<int>> _monthlyThresholdsNotified = new();
         private static readonly ConcurrentDictionary<string, HashSet<int>> _yearlyThresholdsNotified = new();
+
+        private static readonly object _saveLock = new object();
 
 
         public static void Start(ISessionManager sessionManager, ILogger logger, IApplicationPaths appPaths, IJsonSerializer jsonSerializer)
@@ -86,11 +88,11 @@ namespace WatchingEye
                 if (!limitedUsersMap.Any()) return;
 
                 bool dataChanged = false;
-                var now = DateTime.Now;
+                var nowUtc = DateTime.UtcNow;
 
                 foreach (var userConfig in limitedUsersMap.Values)
                 {
-                    dataChanged |= ProcessResetsForUser(userConfig, now);
+                    dataChanged |= ProcessResetsForUser(userConfig, nowUtc);
                 }
 
                 var userIdsToClean = _userWatchData.Keys.Except(limitedUsersMap.Keys).ToList();
@@ -122,14 +124,14 @@ namespace WatchingEye
 
                 foreach (var user in activeUsers)
                 {
-                    if (user.UserConfig.EnableTimeWindow && IsOutsideTimeWindow(user.UserConfig, now))
+                    if (user.UserConfig.EnableTimeWindow && IsOutsideTimeWindow(user.UserConfig, DateTime.Now))
                     {
                         StopPlaybackForUser(user.UserId, PlaybackBlockReason.OutsideTimeWindow).GetAwaiter().GetResult();
                         continue;
                     }
 
                     var userData = _userWatchData.GetOrAdd(user.UserId, new UserWatchData { UserId = user.UserId });
-                    if (userData.TimeOutUntil > now)
+                    if (userData.TimeOutUntil > nowUtc)
                     {
                         StopPlaybackForUser(user.UserId, PlaybackBlockReason.TimedOut).GetAwaiter().GetResult();
                         continue;
@@ -138,8 +140,8 @@ namespace WatchingEye
                     bool timeWasAdded = false;
                     foreach (var session in user.Sessions)
                     {
-                        var lastUpdate = _sessionLastUpdate.GetOrAdd(session.Id, now);
-                        var timeToAdd = now - lastUpdate;
+                        var lastUpdate = _sessionLastUpdate.GetOrAdd(session.Id, nowUtc);
+                        var timeToAdd = nowUtc - lastUpdate;
 
                         if (timeToAdd > TimeSpan.Zero)
                         {
@@ -150,7 +152,7 @@ namespace WatchingEye
                             dataChanged = true;
                             timeWasAdded = true;
                         }
-                        _sessionLastUpdate.AddOrUpdate(session.Id, now, (k, v) => now);
+                        _sessionLastUpdate.AddOrUpdate(session.Id, nowUtc, (k, v) => nowUtc);
                     }
 
                     if (timeWasAdded)
@@ -178,55 +180,57 @@ namespace WatchingEye
             }
         }
 
-        private static bool ProcessResetsForUser(LimitedUser userConfig, DateTime now)
+        private static bool ProcessResetsForUser(LimitedUser userConfig, DateTime nowUtc)
         {
             var dataChanged = false;
             var needsOverallReset = false;
             var userData = _userWatchData.GetOrAdd(userConfig.UserId, new UserWatchData { UserId = userConfig.UserId });
 
-            if (userData.LastDailyReset == DateTime.MinValue) userData.LastDailyReset = now;
-            if (userData.LastWeeklyReset == DateTime.MinValue) userData.LastWeeklyReset = now;
-            if (userData.LastMonthlyReset == DateTime.MinValue) userData.LastMonthlyReset = now;
-            if (userData.LastYearlyReset == DateTime.MinValue) userData.LastYearlyReset = now;
+            var localNow = nowUtc.ToLocalTime();
 
-            DateTime lastDailyTrigger = now.Date.AddHours(userConfig.ResetTimeOfDayHours);
-            if (now < lastDailyTrigger) lastDailyTrigger = lastDailyTrigger.AddDays(-1);
-            if (now >= lastDailyTrigger && userData.LastDailyReset < lastDailyTrigger)
+            if (userData.LastDailyReset == DateTime.MinValue) userData.LastDailyReset = nowUtc;
+            if (userData.LastWeeklyReset == DateTime.MinValue) userData.LastWeeklyReset = nowUtc;
+            if (userData.LastMonthlyReset == DateTime.MinValue) userData.LastMonthlyReset = nowUtc;
+            if (userData.LastYearlyReset == DateTime.MinValue) userData.LastYearlyReset = nowUtc;
+
+            DateTime lastDailyTriggerLocal = localNow.Date.AddHours(userConfig.ResetTimeOfDayHours);
+            if (localNow < lastDailyTriggerLocal) lastDailyTriggerLocal = lastDailyTriggerLocal.AddDays(-1);
+            if (nowUtc >= lastDailyTriggerLocal.ToUniversalTime() && userData.LastDailyReset < lastDailyTriggerLocal.ToUniversalTime())
             {
                 userData.WatchedTimeTicksDaily = 0;
                 userData.TimeCreditTicksDaily = 0;
-                userData.LastDailyReset = now;
+                userData.LastDailyReset = nowUtc;
                 _dailyThresholdsNotified.TryRemove(userConfig.UserId, out _);
                 needsOverallReset = true;
             }
 
-            int daysSinceResetDay = (int)now.DayOfWeek - (int)userConfig.WeeklyResetDay;
+            int daysSinceResetDay = (int)localNow.DayOfWeek - (int)userConfig.WeeklyResetDay;
             if (daysSinceResetDay < 0) daysSinceResetDay += 7;
-            DateTime lastWeeklyTrigger = now.Date.AddDays(-daysSinceResetDay).AddHours(userConfig.ResetTimeOfDayHours);
-            if (now >= lastWeeklyTrigger && userData.LastWeeklyReset < lastWeeklyTrigger)
+            DateTime lastWeeklyTriggerLocal = localNow.Date.AddDays(-daysSinceResetDay).AddHours(userConfig.ResetTimeOfDayHours);
+            if (nowUtc >= lastWeeklyTriggerLocal.ToUniversalTime() && userData.LastWeeklyReset < lastWeeklyTriggerLocal.ToUniversalTime())
             {
                 userData.WatchedTimeTicksWeekly = 0;
                 userData.TimeCreditTicksWeekly = 0;
-                userData.LastWeeklyReset = now;
+                userData.LastWeeklyReset = nowUtc;
                 _weeklyThresholdsNotified.TryRemove(userConfig.UserId, out _);
                 needsOverallReset = true;
             }
 
             try
             {
-                int resetDay = Math.Min(userConfig.MonthlyResetDay, DateTime.DaysInMonth(now.Year, now.Month));
-                DateTime lastMonthlyTrigger = new DateTime(now.Year, now.Month, resetDay).AddHours(userConfig.ResetTimeOfDayHours);
-                if (now < lastMonthlyTrigger)
+                int resetDay = Math.Min(userConfig.MonthlyResetDay, DateTime.DaysInMonth(localNow.Year, localNow.Month));
+                DateTime lastMonthlyTriggerLocal = new DateTime(localNow.Year, localNow.Month, resetDay).AddHours(userConfig.ResetTimeOfDayHours);
+                if (localNow < lastMonthlyTriggerLocal)
                 {
-                    var prevMonth = now.AddMonths(-1);
+                    var prevMonth = localNow.AddMonths(-1);
                     resetDay = Math.Min(userConfig.MonthlyResetDay, DateTime.DaysInMonth(prevMonth.Year, prevMonth.Month));
-                    lastMonthlyTrigger = new DateTime(prevMonth.Year, prevMonth.Month, resetDay).AddHours(userConfig.ResetTimeOfDayHours);
+                    lastMonthlyTriggerLocal = new DateTime(prevMonth.Year, prevMonth.Month, resetDay).AddHours(userConfig.ResetTimeOfDayHours);
                 }
-                if (now >= lastMonthlyTrigger && userData.LastMonthlyReset < lastMonthlyTrigger)
+                if (nowUtc >= lastMonthlyTriggerLocal.ToUniversalTime() && userData.LastMonthlyReset < lastMonthlyTriggerLocal.ToUniversalTime())
                 {
                     userData.WatchedTimeTicksMonthly = 0;
                     userData.TimeCreditTicksMonthly = 0;
-                    userData.LastMonthlyReset = now;
+                    userData.LastMonthlyReset = nowUtc;
                     _monthlyThresholdsNotified.TryRemove(userConfig.UserId, out _);
                     needsOverallReset = true;
                 }
@@ -236,13 +240,13 @@ namespace WatchingEye
 
             try
             {
-                DateTime lastYearlyTrigger = new DateTime(now.Year, userConfig.YearlyResetMonth, userConfig.YearlyResetDay).AddHours(userConfig.ResetTimeOfDayHours);
-                if (now < lastYearlyTrigger) lastYearlyTrigger = lastYearlyTrigger.AddYears(-1);
-                if (now >= lastYearlyTrigger && userData.LastYearlyReset < lastYearlyTrigger)
+                DateTime lastYearlyTriggerLocal = new DateTime(localNow.Year, userConfig.YearlyResetMonth, userConfig.YearlyResetDay).AddHours(userConfig.ResetTimeOfDayHours);
+                if (localNow < lastYearlyTriggerLocal) lastYearlyTriggerLocal = lastYearlyTriggerLocal.AddYears(-1);
+                if (nowUtc >= lastYearlyTriggerLocal.ToUniversalTime() && userData.LastYearlyReset < lastYearlyTriggerLocal.ToUniversalTime())
                 {
                     userData.WatchedTimeTicksYearly = 0;
                     userData.TimeCreditTicksYearly = 0;
-                    userData.LastYearlyReset = now;
+                    userData.LastYearlyReset = nowUtc;
                     _yearlyThresholdsNotified.TryRemove(userConfig.UserId, out _);
                     needsOverallReset = true;
                 }
@@ -328,7 +332,7 @@ namespace WatchingEye
 
             var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
 
-            if (userData.TimeOutUntil > DateTime.Now)
+            if (userData.TimeOutUntil > DateTime.UtcNow)
                 return PlaybackBlockReason.TimedOut;
 
             if (limitedUser.EnableTimeWindow && IsOutsideTimeWindow(limitedUser, DateTime.Now))
@@ -425,7 +429,7 @@ namespace WatchingEye
                     header = "Playback Disabled";
                     if (_userWatchData.TryGetValue(userId, out var userData))
                     {
-                        var remaining = userData.TimeOutUntil - DateTime.Now;
+                        var remaining = userData.TimeOutUntil - DateTime.UtcNow;
                         var formattedDuration = FormatTimeSpan(remaining);
                         message = config.TimeOutMessageText.Replace("{duration}", formattedDuration);
                     }
@@ -503,7 +507,7 @@ namespace WatchingEye
         {
             if (minutes <= 0) return;
             var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
-            userData.TimeOutUntil = DateTime.Now.AddMinutes(minutes);
+            userData.TimeOutUntil = DateTime.UtcNow.AddMinutes(minutes);
             SaveWatchTimeData();
             _logger?.Info($"[WatchTimeManager] User {userId} has been timed out for {minutes} minutes.");
             StopPlaybackForUser(userId, PlaybackBlockReason.TimedOut).GetAwaiter().GetResult();
@@ -563,10 +567,16 @@ namespace WatchingEye
                     _userWatchData = new ConcurrentDictionary<string, UserWatchData>();
                     foreach (var user in data.UserWatchTimes)
                     {
+                        user.LastDailyReset = DateTime.SpecifyKind(user.LastDailyReset, DateTimeKind.Utc);
+                        user.LastWeeklyReset = DateTime.SpecifyKind(user.LastWeeklyReset, DateTimeKind.Utc);
+                        user.LastMonthlyReset = DateTime.SpecifyKind(user.LastMonthlyReset, DateTimeKind.Utc);
+                        user.LastYearlyReset = DateTime.SpecifyKind(user.LastYearlyReset, DateTimeKind.Utc);
+                        user.TimeOutUntil = DateTime.SpecifyKind(user.TimeOutUntil, DateTimeKind.Utc);
+
                         if (user.WatchedTimeTicks > 0 && user.WatchedTimeTicksDaily == 0)
                         {
                             user.WatchedTimeTicksDaily = user.WatchedTimeTicks;
-                            user.LastDailyReset = user.LastResetTime;
+                            user.LastDailyReset = DateTime.SpecifyKind(user.LastResetTime, DateTimeKind.Utc);
                         }
                         _userWatchData.TryAdd(user.UserId, user);
                     }
@@ -582,15 +592,21 @@ namespace WatchingEye
         {
             if (_jsonSerializer == null || string.IsNullOrEmpty(_watchTimeDataPath)) return;
 
-            try
+            lock (_saveLock)
             {
-                var data = new WatchTimePersistenceData { UserWatchTimes = _userWatchData.Values.ToList() };
-                var json = _jsonSerializer.SerializeToString(data);
-                File.WriteAllText(_watchTimeDataPath, json);
-            }
-            catch (Exception ex)
-            {
-                _logger?.ErrorException("[WatchTimeManager] Error saving watch time data.", ex);
+                try
+                {
+                    var data = new WatchTimePersistenceData { UserWatchTimes = _userWatchData.Values.ToList() };
+                    var json = _jsonSerializer.SerializeToString(data);
+
+                    var tempFilePath = _watchTimeDataPath + ".tmp";
+                    File.WriteAllText(tempFilePath, json);
+                    File.Replace(tempFilePath, _watchTimeDataPath, null);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.ErrorException("[WatchTimeManager] Error saving watch time data.", ex);
+                }
             }
         }
     }

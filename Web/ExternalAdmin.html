@@ -1,4 +1,5 @@
-﻿<!DOCTYPE html>
+﻿﻿
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -77,6 +78,10 @@
             .auth-bar button {
                 margin: 0;
             }
+
+        .hidden {
+            display: none;
+        }
 
         #user-cards {
             margin-top: 1.5em;
@@ -201,14 +206,23 @@
     <div class="container">
         <h1>Watching Eye Controller</h1>
 
-        <div class="auth-bar">
-            <input type="password" id="password" placeholder="Enter password">
-            <button id="refreshStatus">Load / Refresh Data</button>
+        <div id="login-section">
+            <div class="auth-bar">
+                <input type="password" id="password" placeholder="Enter password">
+                <button id="loginButton">Login</button>
+            </div>
         </div>
 
-        <div id="user-cards">
-            <p style="text-align: center; margin-top: 2em;">Enter password and click "Load Data" to see user status and controls.</p>
+        <div id="main-content" class="hidden">
+            <div class="auth-bar">
+                <p style="flex-grow:1; margin:0;">Authenticated successfully. <a href="#" id="logoutButton" style="color: #52B54B;">Logout</a></p>
+                <button id="refreshStatus">Refresh Data</button>
+            </div>
+            <div id="user-cards">
+                <p style="text-align: center; margin-top: 2em;">Click "Refresh Data" to see user status and controls.</p>
+            </div>
         </div>
+
     </div>
 
     <div id="toast"></div>

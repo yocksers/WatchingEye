@@ -56,6 +56,7 @@ namespace WatchingEye
 
         public DateTime TimeOutUntil { get; set; }
 
+        // Legacy properties for migration
         public long WatchedTimeTicks { get; set; }
         public DateTime LastResetTime { get; set; }
     }
@@ -81,6 +82,10 @@ namespace WatchingEye
         public bool EnableTranscodeBlocking { get; set; } = false;
         public string BlockedTranscodeFormats { get; set; } = "mkv,ts,avi";
 
+        public bool EnableResolutionBlocking { get; set; } = false;
+        public int MaxTranscodingResolution { get; set; } = 2160;
+        public string MessageTextResolutionBlocked { get; set; } = "Transcoding video with a resolution of {height}p is not permitted. The maximum allowed resolution is {max}p.";
+
         public bool NotifyOnDirectPlay { get; set; } = false;
         public string DirectPlayMessageText { get; set; } = "Direct Play active. Enjoy the best possible quality!";
 
@@ -90,7 +95,12 @@ namespace WatchingEye
         public int PlaybackStartMaxNotifications { get; set; } = 1;
         public int PlaybackStartDelayBetweenMessagesSeconds { get; set; } = 5;
 
-        public bool EnableConfirmationButton { get; set; } = false;
+        public bool EnableConfirmationButtonOnTranscodeWarning { get; set; } = false;
+        public bool EnableConfirmationButtonOnTranscodeBlock { get; set; } = false;
+        public bool EnableConfirmationButtonOnDirectPlay { get; set; } = false;
+        public bool EnableConfirmationButtonOnPlaybackStart { get; set; } = false;
+        public bool EnableConfirmationButtonOnResolutionBlock { get; set; } = false;
+        public bool EnableConfirmationButtonOnWatchTimeLimit { get; set; } = false;
         public List<string> ExcludedUserIds { get; set; } = new List<string>();
         public List<string> ExcludedClients { get; set; } = new List<string>();
         public List<string> ExcludedLibraryIds { get; set; } = new List<string>();
