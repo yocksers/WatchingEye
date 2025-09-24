@@ -10,6 +10,7 @@ namespace WatchingEye
         {
             // Container
             { "ContainerNotSupported", "the container is not compatible" },
+            { "ContainerBitrateExceedsLimit", "the container's bitrate is too high" },
 
             // Video
             { "VideoCodecNotSupported", "the video format is not supported" },

@@ -122,57 +122,6 @@ namespace WatchingEye
                     }
                 }
 
-                if (config.EnableTranscodeBlocking && session.TranscodingInfo != null && !string.IsNullOrWhiteSpace(config.BlockedTranscodeFormats))
-                {
-                    var blockedFormats = new HashSet<string>(config.BlockedTranscodeFormats.Split(',').Select(f => f.Trim()), StringComparer.OrdinalIgnoreCase);
-                    var sourceContainer = session.NowPlayingItem.Container;
-
-                    if (!string.IsNullOrEmpty(sourceContainer) && blockedFormats.Contains(sourceContainer))
-                    {
-                        _logger.Info($"[TranscodeMonitor] Blocking transcode for user '{session.UserName}' on client '{session.Client}'. Source format '{sourceContainer}' is on the blocklist.");
-
-                        var message = new MessageCommand
-                        {
-                            Header = "Playback Blocked",
-                            Text = $"Transcoding from the '{sourceContainer.ToUpper()}' container is not permitted by the server administrator.",
-                            TimeoutMs = config.EnableConfirmationButtonOnTranscodeBlock ? null : (int?)10000
-                        };
-
-                        _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
-                        _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
-
-                        return;
-                    }
-                }
-
-                if (config.EnableResolutionBlocking && session.TranscodingInfo != null && session.NowPlayingItem.Height > config.MaxTranscodingResolution)
-                {
-                    _logger.Info($"[TranscodeMonitor] Blocking transcode for user '{session.UserName}' on client '{session.Client}'. Resolution '{session.NowPlayingItem.Height}p' is over the limit of '{config.MaxTranscodingResolution}p'.");
-
-                    var text = config.MessageTextResolutionBlocked;
-                    if (string.IsNullOrWhiteSpace(text))
-                    {
-                        text = $"Transcoding video with a resolution of {session.NowPlayingItem.Height}p is not permitted. The maximum allowed resolution is {config.MaxTranscodingResolution}p.";
-                    }
-
-                    text = text.Replace("{height}", session.NowPlayingItem.Height.ToString())
-                               .Replace("{max}", config.MaxTranscodingResolution.ToString());
-
-                    var useConfirmation = config.EnableConfirmationButtonOnResolutionBlock;
-
-                    var message = new MessageCommand
-                    {
-                        Header = "Playback Blocked",
-                        Text = text,
-                        TimeoutMs = useConfirmation ? null : (int?)10000
-                    };
-
-                    _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
-                    _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
-
-                    return;
-                }
-
                 if (config.EnableWatchTimeLimiter)
                 {
                     var blockReason = WatchTimeManager.GetPlaybackBlockReason(session.UserId);
@@ -224,31 +173,92 @@ namespace WatchingEye
                 return;
             }
 
+            if (config.InitialDelaySeconds > 0)
+            {
+                await Task.Delay(config.InitialDelaySeconds * 1000).ConfigureAwait(false);
+            }
+
+            var currentSession = _sessionManager?.Sessions.FirstOrDefault(s => s.Id == session.Id);
+            if (currentSession?.TranscodingInfo == null)
+            {
+                return;
+            }
+
+            if (config.EnableResolutionBlocking && currentSession.NowPlayingItem.Height > config.MaxTranscodingResolution)
+            {
+                _logger?.Info($"[TranscodeMonitor] Blocking transcode for user '{currentSession.UserName}' on client '{currentSession.Client}'. Resolution '{currentSession.NowPlayingItem.Height}p' is over the limit of '{config.MaxTranscodingResolution}p'.");
+
+                var text = config.MessageTextResolutionBlocked;
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    text = $"Transcoding video with a resolution of {currentSession.NowPlayingItem.Height}p is not permitted. The maximum allowed resolution is {config.MaxTranscodingResolution}p.";
+                }
+
+                text = text.Replace("{height}", currentSession.NowPlayingItem.Height.ToString())
+                           .Replace("{max}", config.MaxTranscodingResolution.ToString());
+
+                var message = new MessageCommand
+                {
+                    Header = "Playback Blocked",
+                    Text = text,
+                    TimeoutMs = null
+                };
+
+                if (_sessionManager == null) return;
+                await _sessionManager.SendPlaystateCommand(null, currentSession.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
+                await _sessionManager.SendMessageCommand(null, currentSession.Id, message, CancellationToken.None).ConfigureAwait(false);
+                return;
+            }
+
+            if (config.EnableTranscodeBlocking && !string.IsNullOrWhiteSpace(config.BlockedTranscodeFormats))
+            {
+                var blockedFormats = new HashSet<string>(config.BlockedTranscodeFormats.Split(',').Select(f => f.Trim()), StringComparer.OrdinalIgnoreCase);
+                var sourceContainer = currentSession.NowPlayingItem.Container;
+
+                if (!string.IsNullOrEmpty(sourceContainer) && blockedFormats.Contains(sourceContainer))
+                {
+                    _logger?.Info($"[TranscodeMonitor] Blocking transcode for user '{currentSession.UserName}' on client '{currentSession.Client}'. Source format '{sourceContainer}' is on the blocklist.");
+
+                    var message = new MessageCommand
+                    {
+                        Header = "Playback Blocked",
+                        Text = $"Transcoding from the '{sourceContainer.ToUpper()}' container is not permitted by the server administrator.",
+                        TimeoutMs = null
+                    };
+
+                    if (_sessionManager == null) return;
+                    await _sessionManager.SendPlaystateCommand(null, currentSession.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
+                    await _sessionManager.SendMessageCommand(null, currentSession.Id, message, CancellationToken.None).ConfigureAwait(false);
+                    return;
+                }
+            }
+
             if (!config.EnableTranscodeWarning) return;
 
-            if (!config.NotifyOnAudioOnlyTranscode && session.TranscodingInfo.IsVideoDirect && !session.TranscodingInfo.IsAudioDirect)
+            if (!config.NotifyOnAudioOnlyTranscode && currentSession.TranscodingInfo.IsVideoDirect && !currentSession.TranscodingInfo.IsAudioDirect)
                 return;
 
-            var rawTranscodeReasons = string.Join(", ", session.TranscodingInfo.TranscodeReasons);
+            var rawTranscodeReasons = string.Join(", ", currentSession.TranscodingInfo.TranscodeReasons);
             var friendlyReasons = TranscodeReasonParser.Parse(rawTranscodeReasons);
 
-            string message;
-            if (rawTranscodeReasons.Contains("BitrateTooHighInMatrix") && !string.IsNullOrWhiteSpace(config.MessageTextBandwidthLimitation))
+            string messageText;
+            var isBandwidthReason = rawTranscodeReasons.Contains("BitrateTooHighInMatrix") || rawTranscodeReasons.Contains("ContainerBitrateExceedsLimit");
+            if (isBandwidthReason && !string.IsNullOrWhiteSpace(config.MessageTextBandwidthLimitation))
             {
-                message = config.MessageTextBandwidthLimitation.Replace("{reason}", friendlyReasons);
+                messageText = config.MessageTextBandwidthLimitation.Replace("{reason}", friendlyReasons);
             }
             else if (!string.IsNullOrWhiteSpace(config.MessageTextClientLimitation))
             {
-                message = config.MessageTextClientLimitation.Replace("{reason}", friendlyReasons);
+                messageText = config.MessageTextClientLimitation.Replace("{reason}", friendlyReasons);
             }
             else
             {
-                message = config.MessageText.Replace("{reason}", friendlyReasons);
+                messageText = config.MessageText.Replace("{reason}", friendlyReasons);
             }
 
-            LogManager.LogTranscode(session, friendlyReasons);
+            LogManager.LogTranscode(currentSession, friendlyReasons);
 
-            await SendNotificationAsync(session, "Transcode Warning", message, config.InitialDelaySeconds,
+            await SendNotificationAsync(currentSession, "Transcode Warning", messageText, 0,
                 config.MaxNotifications, config.DelayBetweenMessagesSeconds, config.EnableConfirmationButtonOnTranscodeWarning, _transcodeNotificationsSent);
         }
 

@@ -684,7 +684,6 @@
             updatePluginConfiguration(this.config).then(result => {
                 loading.hide();
                 Dashboard.processPluginConfigurationUpdateResult(result);
-                toast('Configuration saved.');
                 this.loadData(view);
             }).catch(() => {
                 loading.hide();

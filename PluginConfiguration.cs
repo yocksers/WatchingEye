@@ -73,7 +73,7 @@ namespace WatchingEye
         public bool EnableTranscodeWarning { get; set; } = true;
         public string MessageText { get; set; } = "This video is being transcoded. Reason: {reason}";
         public string MessageTextClientLimitation { get; set; } = "This video is transcoding because your device doesn't support the format ({reason}). For a better experience, try a different client like Emby Theater or a modern web browser.";
-        public string MessageTextBandwidthLimitation { get; set; } = "This video is transcoding due to your current quality settings ({reason}). For a better experience, try choosing a lower quality setting.";
+        public string MessageTextBandwidthLimitation { get; set; } = "This video is transcoding due to your current quality settings ({reason}). For a better experience, try choosing a higher quality setting.";
         public int MaxNotifications { get; set; } = 1;
         public bool NotifyOnAudioOnlyTranscode { get; set; } = true;
         public int InitialDelaySeconds { get; set; } = 2;
