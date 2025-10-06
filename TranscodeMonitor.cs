@@ -26,6 +26,8 @@ namespace WatchingEye
         private static readonly ConcurrentDictionary<string, int> _transcodeNotificationsSent = new();
         private static readonly ConcurrentDictionary<string, int> _directPlayNotificationsSent = new();
         private static readonly ConcurrentDictionary<string, int> _playbackStartNotificationsSent = new();
+        private static readonly ConcurrentDictionary<string, bool> _notificationLoopActive = new();
+        private static readonly ConcurrentDictionary<string, bool> _sessionsBeingBlocked = new();
 
         public static void Start(ISessionManager sessionManager, ILogger logger, ILibraryManager libraryManager)
         {
@@ -64,11 +66,32 @@ namespace WatchingEye
             var session = e.Session;
             if (session != null)
             {
+                _notificationLoopActive.TryRemove($"{session.Id}_Transcode Warning", out _);
+                _notificationLoopActive.TryRemove($"{session.Id}_Direct Play", out _);
+                _notificationLoopActive.TryRemove($"{session.Id}_Playback Started", out _);
+
                 _transcodeNotificationsSent.TryRemove(session.Id, out _);
                 _directPlayNotificationsSent.TryRemove(session.Id, out _);
                 _playbackStartNotificationsSent.TryRemove(session.Id, out _);
 
                 WatchTimeManager.OnSessionStopped(session.Id);
+
+                if (_sessionsBeingBlocked.TryRemove(session.Id, out _))
+                {
+                }
+                else
+                {
+                    if (_sessionManager != null)
+                    {
+                        var clearMessage = new MessageCommand
+                        {
+                            Header = string.Empty,
+                            Text = string.Empty,
+                            TimeoutMs = 1
+                        };
+                        _ = _sessionManager.SendMessageCommand(null, session.Id, clearMessage, CancellationToken.None);
+                    }
+                }
             }
         }
 
@@ -205,6 +228,7 @@ namespace WatchingEye
                 };
 
                 if (_sessionManager == null) return;
+                _sessionsBeingBlocked.TryAdd(currentSession.Id, true);
                 await _sessionManager.SendPlaystateCommand(null, currentSession.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
                 await _sessionManager.SendMessageCommand(null, currentSession.Id, message, CancellationToken.None).ConfigureAwait(false);
                 return;
@@ -227,6 +251,7 @@ namespace WatchingEye
                     };
 
                     if (_sessionManager == null) return;
+                    _sessionsBeingBlocked.TryAdd(currentSession.Id, true);
                     await _sessionManager.SendPlaystateCommand(null, currentSession.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
                     await _sessionManager.SendMessageCommand(null, currentSession.Id, message, CancellationToken.None).ConfigureAwait(false);
                     return;
@@ -266,28 +291,54 @@ namespace WatchingEye
         {
             if (_sessionManager == null) return;
 
-            var sentCount = sentCounts.GetOrAdd(session.Id, 0);
-            if (sentCount >= maxNotifications) return;
-
-            if (initialDelay > 0)
+            var loopKey = $"{session.Id}_{header}";
+            if (!_notificationLoopActive.TryAdd(loopKey, true))
             {
-                await Task.Delay(initialDelay * 1000).ConfigureAwait(false);
+                return;
             }
 
-            var message = new MessageCommand
+            try
             {
-                Header = header,
-                Text = text,
-                TimeoutMs = useConfirmationButton ? null : (int?)7000
-            };
+                var sentCount = sentCounts.GetOrAdd(session.Id, 0);
 
-            await _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
+                if (sentCount >= maxNotifications)
+                {
+                    return;
+                }
 
-            sentCounts.AddOrUpdate(session.Id, 1, (_, count) => count + 1);
+                if (sentCount == 0 && initialDelay > 0)
+                {
+                    await Task.Delay(initialDelay * 1000).ConfigureAwait(false);
+                }
 
-            if (delayBetween > 0 && sentCounts.GetOrAdd(session.Id, 0) < maxNotifications)
+                while (sentCount < maxNotifications)
+                {
+                    var currentSession = _sessionManager.Sessions.FirstOrDefault(s => s.Id == session.Id);
+                    if (currentSession == null || currentSession.PlayState.IsPaused)
+                    {
+                        break;
+                    }
+
+                    var message = new MessageCommand
+                    {
+                        Header = header,
+                        Text = text,
+                        TimeoutMs = useConfirmationButton ? null : (int?)7000
+                    };
+
+                    await _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
+
+                    sentCount = sentCounts.AddOrUpdate(session.Id, 1, (_, count) => count + 1);
+
+                    if (sentCount < maxNotifications && delayBetween > 0)
+                    {
+                        await Task.Delay(delayBetween * 1000).ConfigureAwait(false);
+                    }
+                }
+            }
+            finally
             {
-                await Task.Delay(delayBetween * 1000).ConfigureAwait(false);
+                _notificationLoopActive.TryRemove(loopKey, out _);
             }
         }
     }

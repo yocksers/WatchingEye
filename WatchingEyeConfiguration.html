@@ -1,4 +1,4 @@
-﻿﻿<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow" data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true" data-bindheader="true" data-controller="__plugin/WatchingEyeConfigurationjs" data-title="Watching Eye">
+﻿<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow" data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true" data-bindheader="true" data-controller="__plugin/WatchingEyeConfigurationjs" data-title="Watching Eye">
     <style>
         .disabled-item .listItemBody, .disabled-item .listItemBody .secondary {
             color: #999;
@@ -186,8 +186,7 @@
                 <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="notificationsPage">Notifications</a>
                 <a is="emby-linkbutton" class="nav-button ui-btn-active" href="#" data-role="button" data-target="limiterPage">Watch Time Limiter</a>
                 <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="loggingPage">Logging</a>
-                <!-- ADDED THIS NEW BUTTON -->
-                <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="helpPage">API & Help</a>
+                <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="remoteAccessPage">Remote Access & API</a>
             </div>
 
             <form class="watchingEyeForm">
@@ -346,6 +345,7 @@
                         </div>
                         <div class="inputContainer">
                             <input is="emby-input" type="text" id="txtTimeWindowBlockedMessageText" label="Time Window Blocked Message Text:" data-config-key="TimeWindowBlockedMessageText" />
+                            <div class="fieldDescription">Message shown when playback is blocked by the time window. Use {start_time} and {end_time} to show the user their allowed window.</div>
                         </div>
                         <div class="inputContainer">
                             <input is="emby-input" type="text" id="txtTimeOutMessageText" label="Time-Out Message Text:" data-config-key="TimeOutMessageText" />
@@ -361,7 +361,23 @@
                             <span>Reset All Users</span>
                         </button>
                     </div>
+                </div>
 
+                <div id="loggingPage" class="hide">
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <div class="page-header">
+                            <h2 style="margin:0;">Event Log</h2>
+                            <button is="emby-button" type="button" class="raised button-cancel" id="btnClearLog">
+                                <span>Clear Log</span>
+                            </button>
+                        </div>
+                        <div class="fieldDescription">Shows the last 200 events, such as when users hit their time limit or trigger a transcode.</div>
+                        <div id="logContainer" class="logging-list" style="margin-top:1.5em;">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="remoteAccessPage" class="hide">
                     <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
                         <h2 style="margin-top: 0;">External Standalone Web Page</h2>
                         <div id="webServerStatusContainer"></div>
@@ -396,7 +412,6 @@
                         </div>
                     </div>
 
-
                     <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
                         <h2 style="margin-top: 0;">External API Control</h2>
                         <div class="checkboxContainer">
@@ -411,30 +426,9 @@
                         </button>
                     </div>
 
-                </div>
-
-                <div id="loggingPage" class="hide">
-                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
-                        <div class="page-header">
-                            <h2 style="margin:0;">Event Log</h2>
-                            <button is="emby-button" type="button" class="raised button-cancel" id="btnClearLog">
-                                <span>Clear Log</span>
-                            </button>
-                        </div>
-                        <div class="fieldDescription">Shows the last 200 events, such as when users hit their time limit or trigger a transcode.</div>
-                        <div id="logContainer" class="logging-list" style="margin-top:1.5em;">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ADDED THIS NEW PAGE -->
-                <div id="helpPage" class="hide">
                     <div class="paper-card help-page" style="padding: 1.5em 2em; margin-top: 2em;">
-                        <h2 style="margin-top: 0;">Watching Eye Plugin Guide</h2>
-                        <p>This plugin provides two main functions: notifying users about video transcodes and managing user watch time with a flexible limiter.</p>
-
-                        <h2>External API System</h2>
-                        <p>The plugin exposes a public API to allow external scripts, dashboards, or applications to monitor and control user watch time. To use the API, you must first generate an API key on the "Watch Time Limiter" tab.</p>
+                        <h2 style="margin-top: 0;">External API Guide</h2>
+                        <p>The plugin exposes a public API to allow external scripts, dashboards, or applications to monitor and control user watch time. To use the API, you must first generate an API key on this page.</p>
 
                         <h3>Authentication</h3>
                         <p>All API requests require **two** forms of authentication:</p>
@@ -504,7 +498,6 @@
                         <pre>{
     "UserId": "YOUR_USER_ID_HERE"
 }</pre>
-
                     </div>
                 </div>
 

@@ -142,14 +142,14 @@
                     view.querySelectorAll('.localnav .nav-button').forEach(b => b.classList.remove('ui-btn-active'));
                     target.classList.add('ui-btn-active');
 
-                    view.querySelectorAll('#notificationsPage, #limiterPage, #loggingPage, #helpPage').forEach(page => {
+                    view.querySelectorAll('#notificationsPage, #limiterPage, #loggingPage, #remoteAccessPage').forEach(page => {
                         page.classList.toggle('hide', page.id !== targetId);
                     });
 
                     if (targetId === 'loggingPage') {
                         renderLogs(view);
                     }
-                    if (targetId === 'limiterPage' && this.config.EnableExternalWebServer) {
+                    if (targetId === 'remoteAccessPage' && this.config.EnableExternalWebServer) {
                         renderWebServerStatus(this.view);
                     }
                 }
@@ -458,9 +458,21 @@
                     <div class="checkboxContainer">
                         <label><input is="emby-checkbox" type="checkbox" class="edit-enable-time-window" ${user.EnableTimeWindow ? 'checked' : ''} /><span>Restrict playback to a specific time window</span></label>
                     </div>
-                    <div class="time-window-container" style="display: flex; gap: 1em;">
-                        <div class="inputContainer" style="flex-grow: 1;"><select is="emby-select" class="edit-window-start" label="From:">${timeOptions}</select></div>
-                        <div class="inputContainer" style="flex-grow: 1;"><select is="emby-select" class="edit-window-end" label="To:">${timeOptions}</select></div>
+                    <div class="time-window-container">
+                        <div style="display: flex; gap: 1em;">
+                            <div class="inputContainer" style="flex-grow: 1;"><select is="emby-select" class="edit-window-start" label="From:">${timeOptions}</select></div>
+                            <div class="inputContainer" style="flex-grow: 1;"><select is="emby-select" class="edit-window-end" label="To:">${timeOptions}</select></div>
+                        </div>
+                        <h3 style="margin-top: 1.5em; margin-bottom: 0.5em;">Allowed Days:</h3>
+                        <div class="allowed-days-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.5em;">
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-allowed-day" data-day="0" /><span>Sunday</span></label>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-allowed-day" data-day="1" /><span>Monday</span></label>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-allowed-day" data-day="2" /><span>Tuesday</span></label>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-allowed-day" data-day="3" /><span>Wednesday</span></label>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-allowed-day" data-day="4" /><span>Thursday</span></label>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-allowed-day" data-day="5" /><span>Friday</span></label>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-allowed-day" data-day="6" /><span>Saturday</span></label>
+                        </div>
                     </div>
                 </div>
 
@@ -507,7 +519,8 @@
 
                 EnableTimeWindow: editorContainer.querySelector('.edit-enable-time-window').checked,
                 WatchWindowStartHour: parseFloat(editorContainer.querySelector('.edit-window-start').value),
-                WatchWindowEndHour: parseFloat(editorContainer.querySelector('.edit-window-end').value)
+                WatchWindowEndHour: parseFloat(editorContainer.querySelector('.edit-window-end').value),
+                AllowedDays: Array.from(editorContainer.querySelectorAll('.edit-allowed-day:checked')).map(cb => parseInt(cb.getAttribute('data-day')))
             };
 
             if (userId === newUserId) {
@@ -576,6 +589,14 @@
                         editor.querySelector('.edit-yearly-reset-day').value = user.YearlyResetDay || 1;
                         editor.querySelector('.edit-window-start').value = user.WatchWindowStartHour || 0;
                         editor.querySelector('.edit-window-end').value = user.WatchWindowEndHour || 23.5;
+
+                        const allowedDays = user.AllowedDays || [0, 1, 2, 3, 4, 5, 6];
+                        allowedDays.forEach(day => {
+                            const checkbox = editor.querySelector(`.edit-allowed-day[data-day="${day}"]`);
+                            if (checkbox) {
+                                checkbox.checked = true;
+                            }
+                        });
 
                         const timeWindowCheckbox = editor.querySelector('.edit-enable-time-window');
                         const timeWindowContainer = editor.querySelector('.time-window-container');

@@ -265,6 +265,14 @@ namespace WatchingEye
 
         private static bool IsOutsideTimeWindow(LimitedUser userConfig, DateTime now)
         {
+            if (userConfig.AllowedDays != null && userConfig.AllowedDays.Count < 7)
+            {
+                if (!userConfig.AllowedDays.Contains((int)now.DayOfWeek))
+                {
+                    return true;
+                }
+            }
+
             var startHour = userConfig.WatchWindowStartHour;
             var endHour = userConfig.WatchWindowEndHour;
             var currentHour = now.TimeOfDay.TotalHours;
@@ -356,6 +364,13 @@ namespace WatchingEye
             return PlaybackBlockReason.Allowed;
         }
 
+        private static string FormatTimeFromDouble(double hour)
+        {
+            var time = TimeSpan.FromHours(hour);
+            var dateTime = DateTime.Today.Add(time);
+            return dateTime.ToString("t");
+        }
+
         private static string FormatTimeSpan(TimeSpan timeSpan)
         {
             if (timeSpan.TotalSeconds <= 1)
@@ -424,6 +439,14 @@ namespace WatchingEye
                 case PlaybackBlockReason.OutsideTimeWindow:
                     message = config.TimeWindowBlockedMessageText;
                     header = "Playback Not Allowed";
+                    var limitedUser = config.LimitedUsers.FirstOrDefault(u => u.UserId == userId);
+                    if (limitedUser != null)
+                    {
+                        var startTime = FormatTimeFromDouble(limitedUser.WatchWindowStartHour);
+                        var endTime = FormatTimeFromDouble(limitedUser.WatchWindowEndHour);
+                        message = message.Replace("{start_time}", startTime)
+                                         .Replace("{end_time}", endTime);
+                    }
                     break;
                 case PlaybackBlockReason.TimedOut:
                     header = "Playback Disabled";

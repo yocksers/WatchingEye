@@ -9,8 +9,8 @@
 		<Nullable>enable</Nullable>
 
 		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-		<AssemblyVersion>1.3.8.0</AssemblyVersion>
-		<FileVersion>1.3.8.0</FileVersion>
+		<AssemblyVersion>1.4.2.0</AssemblyVersion>
+		<FileVersion>1.4.2.0</FileVersion>
 		<RootNamespace>WatchingEye</RootNamespace>
 	</PropertyGroup>
 
@@ -29,8 +29,8 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="MediaBrowser.Server.Core" Version="4.8.11" />
-		<PackageReference Include="ServiceStack" Version="5.13.2" />
+		<PackageReference Include="MediaBrowser.Server.Core" Version="4.9.1.80" />
+		<PackageReference Include="ServiceStack" Version="8.8.0" />
 	</ItemGroup>
 
 

@@ -34,6 +34,7 @@ namespace WatchingEye
         public bool EnableTimeWindow { get; set; } = false;
         public double WatchWindowStartHour { get; set; } = 0;
         public double WatchWindowEndHour { get; set; } = 23.5;
+        public List<int> AllowedDays { get; set; } = new List<int> { 0, 1, 2, 3, 4, 5, 6 };
     }
 
     public class UserWatchData
