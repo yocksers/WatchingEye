@@ -66,32 +66,37 @@ namespace WatchingEye
             var session = e.Session;
             if (session != null)
             {
-                _notificationLoopActive.TryRemove($"{session.Id}_Transcode Warning", out _);
-                _notificationLoopActive.TryRemove($"{session.Id}_Direct Play", out _);
-                _notificationLoopActive.TryRemove($"{session.Id}_Playback Started", out _);
+                var sessionId = session.Id;
 
-                _transcodeNotificationsSent.TryRemove(session.Id, out _);
-                _directPlayNotificationsSent.TryRemove(session.Id, out _);
-                _playbackStartNotificationsSent.TryRemove(session.Id, out _);
-
-                WatchTimeManager.OnSessionStopped(session.Id);
-
-                if (_sessionsBeingBlocked.TryRemove(session.Id, out _))
+                // Robustly clean up all notification tracking for the session that just ended.
+                // This ensures that if the user restarts playback for the same item, notifications will trigger again.
+                // This method is preferred over relying on `e.Item` which can sometimes be null.
+                var transcodeKeys = _transcodeNotificationsSent.Keys.Where(k => k.StartsWith($"{sessionId}_")).ToList();
+                foreach (var key in transcodeKeys)
                 {
+                    _transcodeNotificationsSent.TryRemove(key, out _);
                 }
-                else
+
+                var directPlayKeys = _directPlayNotificationsSent.Keys.Where(k => k.StartsWith($"{sessionId}_")).ToList();
+                foreach (var key in directPlayKeys)
                 {
-                    if (_sessionManager != null)
-                    {
-                        var clearMessage = new MessageCommand
-                        {
-                            Header = string.Empty,
-                            Text = string.Empty,
-                            TimeoutMs = 1
-                        };
-                        _ = _sessionManager.SendMessageCommand(null, session.Id, clearMessage, CancellationToken.None);
-                    }
+                    _directPlayNotificationsSent.TryRemove(key, out _);
                 }
+
+                var playbackStartKeys = _playbackStartNotificationsSent.Keys.Where(k => k.StartsWith($"{sessionId}_")).ToList();
+                foreach (var key in playbackStartKeys)
+                {
+                    _playbackStartNotificationsSent.TryRemove(key, out _);
+                }
+
+                var loopKeys = _notificationLoopActive.Keys.Where(k => k.StartsWith($"{sessionId}_")).ToList();
+                foreach (var key in loopKeys)
+                {
+                    _notificationLoopActive.TryRemove(key, out _);
+                }
+
+                WatchTimeManager.OnSessionStopped(sessionId);
+                _sessionsBeingBlocked.TryRemove(sessionId, out _);
             }
         }
 
@@ -260,8 +265,27 @@ namespace WatchingEye
 
             if (!config.EnableTranscodeWarning) return;
 
-            if (!config.NotifyOnAudioOnlyTranscode && currentSession.TranscodingInfo.IsVideoDirect && !currentSession.TranscodingInfo.IsAudioDirect)
-                return;
+            var transcodeInfo = currentSession.TranscodingInfo;
+
+            // Case 1: Pure remux. Video and audio are direct streams.
+            if (transcodeInfo.IsVideoDirect && transcodeInfo.IsAudioDirect)
+            {
+                // If the setting to notify on container changes is off, don't proceed.
+                if (!config.NotifyOnContainerChange)
+                {
+                    _logger?.Info("[TranscodeMonitor] Suppressing notification for container remux as per configuration.");
+                    return;
+                }
+            }
+            // Case 2: Audio transcode with direct video (not a pure remux).
+            else if (transcodeInfo.IsVideoDirect && !transcodeInfo.IsAudioDirect)
+            {
+                if (!config.NotifyOnAudioOnlyTranscode)
+                {
+                    _logger?.Info("[TranscodeMonitor] Suppressing notification for audio-only transcode as per configuration.");
+                    return;
+                }
+            }
 
             var rawTranscodeReasons = string.Join(", ", currentSession.TranscodingInfo.TranscodeReasons);
             var friendlyReasons = TranscodeReasonParser.Parse(rawTranscodeReasons);
@@ -289,9 +313,17 @@ namespace WatchingEye
 
         private static async Task SendNotificationAsync(SessionInfo session, string header, string text, int initialDelay, int maxNotifications, int delayBetween, bool useConfirmationButton, ConcurrentDictionary<string, int> sentCounts)
         {
-            if (_sessionManager == null) return;
+            // If a confirmation button is used, the notification should only ever be sent once.
+            if (useConfirmationButton)
+            {
+                maxNotifications = 1;
+            }
 
-            var loopKey = $"{session.Id}_{header}";
+            if (_sessionManager == null || session.NowPlayingItem == null) return;
+
+            var notificationKey = $"{session.Id}_{session.NowPlayingItem.Id}";
+            var loopKey = $"{notificationKey}_{header}";
+
             if (!_notificationLoopActive.TryAdd(loopKey, true))
             {
                 return;
@@ -299,7 +331,7 @@ namespace WatchingEye
 
             try
             {
-                var sentCount = sentCounts.GetOrAdd(session.Id, 0);
+                var sentCount = sentCounts.GetOrAdd(notificationKey, 0);
 
                 if (sentCount >= maxNotifications)
                 {
@@ -328,11 +360,15 @@ namespace WatchingEye
 
                     await _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
 
-                    sentCount = sentCounts.AddOrUpdate(session.Id, 1, (_, count) => count + 1);
+                    sentCount = sentCounts.AddOrUpdate(notificationKey, 1, (_, count) => count + 1);
 
                     if (sentCount < maxNotifications && delayBetween > 0)
                     {
                         await Task.Delay(delayBetween * 1000).ConfigureAwait(false);
+                    }
+                    else // Break the loop if no further delay is needed
+                    {
+                        break;
                     }
                 }
             }

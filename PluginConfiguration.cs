@@ -72,6 +72,7 @@ namespace WatchingEye
     {
         public string ConfigurationVersion { get; set; } = Guid.NewGuid().ToString();
         public bool EnableTranscodeWarning { get; set; } = true;
+        public bool NotifyOnContainerChange { get; set; } = false;
         public string MessageText { get; set; } = "This video is being transcoded. Reason: {reason}";
         public string MessageTextClientLimitation { get; set; } = "This video is transcoding because your device doesn't support the format ({reason}). For a better experience, try a different client like Emby Theater or a modern web browser.";
         public string MessageTextBandwidthLimitation { get; set; } = "This video is transcoding due to your current quality settings ({reason}). For a better experience, try choosing a higher quality setting.";

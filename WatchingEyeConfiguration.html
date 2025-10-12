@@ -197,6 +197,14 @@
                             <label><input is="emby-checkbox" type="checkbox" id="chkEnableTranscodeWarning" data-config-key="EnableTranscodeWarning" /><span>Enable Transcode Warning</span></label>
                             <div class="fieldDescription">If enabled, a notification will be sent when a video starts transcoding.</div>
                         </div>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkNotifyOnContainerChange" data-config-key="NotifyOnContainerChange" /><span>Notify on Container Change (Remuxing)</span></label>
+                            <div class="fieldDescription">If enabled, a notification will be sent when only the container is changed (e.g., from MKV to MP4) without re-encoding the video or audio.</div>
+                        </div>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkNotifyOnAudioOnlyTranscode" data-config-key="NotifyOnAudioOnlyTranscode" /><span>Notify On Any Audio Transcode</span></label>
+                            <div class="fieldDescription">If disabled, notifications will only be sent when the video stream is transcoding. If enabled, notifications will also be sent when only the audio is transcoding.</div>
+                        </div>
                         <div class="inputContainer">
                             <input is="emby-input" type="text" id="txtMessageTextClientLimitation" label="Client Limitation Message:" data-config-key="MessageTextClientLimitation" />
                             <div class="fieldDescription">Message to show when transcoding is due to client incompatibility. Use {reason} for details.</div>
@@ -221,9 +229,6 @@
                         </div>
                         <div class="inputContainer">
                             <input is="emby-input" type="number" id="numDelayBetweenMessagesSeconds" label="Delay Between Messages (seconds):" data-config-key="DelayBetweenMessagesSeconds" />
-                        </div>
-                        <div class="checkboxContainer">
-                            <label><input is="emby-checkbox" type="checkbox" id="chkNotifyOnAudioOnlyTranscode" data-config-key="NotifyOnAudioOnlyTranscode" /><span>Notify on Audio-Only Transcode</span></label>
                         </div>
                     </div>
 
