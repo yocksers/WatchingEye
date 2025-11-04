@@ -25,7 +25,7 @@ namespace WatchingEye
         private static string? _watchTimeDataPath;
 
         private static bool _isRunning = false;
-        private static readonly int TimerIntervalSeconds = 15; // Increased from 5 to 15
+        private static readonly int TimerIntervalSeconds = 15; 
 
         private static ConcurrentDictionary<string, UserWatchData> _userWatchData = new();
         private static readonly ConcurrentDictionary<string, DateTime> _sessionLastUpdate = new();

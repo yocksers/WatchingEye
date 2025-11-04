@@ -97,12 +97,17 @@ namespace WatchingEye
         public int PlaybackStartMaxNotifications { get; set; } = 1;
         public int PlaybackStartDelayBetweenMessagesSeconds { get; set; } = 5;
 
+        public bool EnablePausedStreamTimeout { get; set; } = false;
+        public int PausedStreamTimeoutMinutes { get; set; } = 30;
+        public string PausedStreamTimeoutMessage { get; set; } = "Playback has been stopped because the stream was paused for too long.";
+
         public bool EnableConfirmationButtonOnTranscodeWarning { get; set; } = false;
         public bool EnableConfirmationButtonOnTranscodeBlock { get; set; } = false;
         public bool EnableConfirmationButtonOnDirectPlay { get; set; } = false;
         public bool EnableConfirmationButtonOnPlaybackStart { get; set; } = false;
         public bool EnableConfirmationButtonOnResolutionBlock { get; set; } = false;
         public bool EnableConfirmationButtonOnWatchTimeLimit { get; set; } = false;
+        public bool EnableConfirmationButtonOnPausedStreamTimeout { get; set; } = false;
         public List<string> ExcludedUserIds { get; set; } = new List<string>();
         public List<string> ExcludedClients { get; set; } = new List<string>();
         public List<string> ExcludedLibraryIds { get; set; } = new List<string>();

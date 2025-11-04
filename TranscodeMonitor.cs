@@ -18,6 +18,7 @@ namespace WatchingEye
         private static ILogger? _logger;
         private static ILibraryManager? _libraryManager;
         private static bool _isRunning;
+        private static Timer? _sessionCheckTimer;
 
         private static List<string>? _excludedLibraryPathsCache;
         private static string _cachedConfigVersion = string.Empty;
@@ -28,6 +29,7 @@ namespace WatchingEye
         private static readonly ConcurrentDictionary<string, int> _playbackStartNotificationsSent = new();
         private static readonly ConcurrentDictionary<string, bool> _notificationLoopActive = new();
         private static readonly ConcurrentDictionary<string, bool> _sessionsBeingBlocked = new();
+        private static readonly ConcurrentDictionary<string, DateTime> _sessionPauseStartTime = new();
 
         public static void Start(ISessionManager sessionManager, ILogger logger, ILibraryManager libraryManager)
         {
@@ -43,7 +45,9 @@ namespace WatchingEye
             _transcodeNotificationsSent.Clear();
             _directPlayNotificationsSent.Clear();
             _playbackStartNotificationsSent.Clear();
+            _sessionPauseStartTime.Clear();
 
+            _sessionCheckTimer = new Timer(OnSessionCheckTimerElapsed, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
             _isRunning = true;
         }
 
@@ -52,13 +56,130 @@ namespace WatchingEye
             if (!_isRunning || _sessionManager == null)
                 return;
 
+            _sessionCheckTimer?.Dispose();
             _sessionManager.PlaybackStart -= OnPlaybackStart;
             _sessionManager.PlaybackStopped -= OnPlaybackStopped;
             _transcodeNotificationsSent.Clear();
             _directPlayNotificationsSent.Clear();
             _playbackStartNotificationsSent.Clear();
+            _sessionPauseStartTime.Clear();
 
             _isRunning = false;
+        }
+
+        private static async void OnSessionCheckTimerElapsed(object? state)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null || _sessionManager == null || _logger == null || _libraryManager == null)
+                return;
+
+            if (!config.EnablePausedStreamTimeout || config.PausedStreamTimeoutMinutes <= 0)
+            {
+                if (!_sessionPauseStartTime.IsEmpty)
+                {
+                    _sessionPauseStartTime.Clear();
+                }
+                return;
+            }
+
+            var sessions = _sessionManager.Sessions.ToList();
+            var now = DateTime.UtcNow;
+            var timeout = TimeSpan.FromMinutes(config.PausedStreamTimeoutMinutes);
+
+            foreach (var session in sessions)
+            {
+                if (IsSessionExcluded(session, config))
+                {
+                    _sessionPauseStartTime.TryRemove(session.Id, out _);
+                    continue;
+                }
+
+                if (session.PlayState.IsPaused)
+                {
+                    var pauseStartTime = _sessionPauseStartTime.GetOrAdd(session.Id, now);
+                    var pausedDuration = now - pauseStartTime;
+
+                    if (pausedDuration >= timeout)
+                    {
+                        _logger.Info($"[TranscodeMonitor] Stopping session for user '{session.UserName}' on client '{session.Client}' due to exceeding pause limit of {config.PausedStreamTimeoutMinutes} minutes.");
+
+                        if (_sessionPauseStartTime.TryRemove(session.Id, out _))
+                        {
+                            var message = new MessageCommand
+                            {
+                                Header = "Playback Stopped",
+                                Text = config.PausedStreamTimeoutMessage,
+                                TimeoutMs = config.EnableConfirmationButtonOnPausedStreamTimeout ? (int?)null : 7000
+                            };
+
+                            await _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
+                            await _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
+                        }
+                    }
+                }
+                else
+                {
+                    _sessionPauseStartTime.TryRemove(session.Id, out _);
+                }
+            }
+
+            var currentSessionIds = new HashSet<string>(sessions.Select(s => s.Id));
+            var pausedSessionIds = _sessionPauseStartTime.Keys.ToList();
+            foreach (var pausedId in pausedSessionIds)
+            {
+                if (!currentSessionIds.Contains(pausedId))
+                {
+                    _sessionPauseStartTime.TryRemove(pausedId, out _);
+                }
+            }
+        }
+
+        private static bool IsSessionExcluded(SessionInfo session, PluginConfiguration config)
+        {
+            if (session == null || config == null || _logger == null || _sessionManager == null || _libraryManager == null || string.IsNullOrEmpty(session.UserId) || session.NowPlayingItem == null)
+                return true;
+
+            if (config.ExcludedUserIds.Contains(session.UserId)) return true;
+            if (config.ExcludedClients.Contains(session.Client, StringComparer.OrdinalIgnoreCase)) return true;
+
+            List<string> currentExcludedPaths;
+            lock (_cacheLock)
+            {
+                if (config.ConfigurationVersion != _cachedConfigVersion)
+                {
+                    _logger.Info("[TranscodeMonitor] Configuration has changed, rebuilding excluded library path cache.");
+                    var newCache = new List<string>();
+                    var excludedIds = new HashSet<string>(config.ExcludedLibraryIds);
+                    if (excludedIds.Any())
+                    {
+                        var libraries = _libraryManager.GetVirtualFolders();
+                        foreach (var library in libraries)
+                        {
+                            if (excludedIds.Contains(library.Id.ToString()))
+                            {
+                                newCache.AddRange(library.Locations);
+                            }
+                        }
+                    }
+                    _excludedLibraryPathsCache = newCache;
+                    _cachedConfigVersion = config.ConfigurationVersion;
+                }
+                currentExcludedPaths = _excludedLibraryPathsCache ?? new List<string>();
+            }
+
+            if (currentExcludedPaths.Any())
+            {
+                var fullItem = _libraryManager.GetItemById(session.NowPlayingItem.Id);
+                if (fullItem != null && !string.IsNullOrEmpty(fullItem.Path))
+                {
+                    if (currentExcludedPaths.Any(p => fullItem.Path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         private static void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
@@ -67,10 +188,8 @@ namespace WatchingEye
             if (session != null)
             {
                 var sessionId = session.Id;
+                _sessionPauseStartTime.TryRemove(sessionId, out _);
 
-                // Robustly clean up all notification tracking for the session that just ended.
-                // This ensures that if the user restarts playback for the same item, notifications will trigger again.
-                // This method is preferred over relying on `e.Item` which can sometimes be null.
                 var transcodeKeys = _transcodeNotificationsSent.Keys.Where(k => k.StartsWith($"{sessionId}_")).ToList();
                 foreach (var key in transcodeKeys)
                 {
@@ -107,48 +226,10 @@ namespace WatchingEye
                 var config = Plugin.Instance?.Configuration;
                 var session = e.Session;
 
-                if (session == null || config == null || _logger == null || _sessionManager == null || _libraryManager == null || string.IsNullOrEmpty(session.UserId) || session.NowPlayingItem == null)
+                if (session == null || config == null)
                     return;
 
-                if (config.ExcludedUserIds.Contains(session.UserId)) return;
-                if (config.ExcludedClients.Contains(session.Client, StringComparer.OrdinalIgnoreCase)) return;
-
-                List<string> currentExcludedPaths;
-                lock (_cacheLock)
-                {
-                    if (config.ConfigurationVersion != _cachedConfigVersion)
-                    {
-                        _logger.Info("[TranscodeMonitor] Configuration has changed, rebuilding excluded library path cache.");
-                        var newCache = new List<string>();
-                        var excludedIds = new HashSet<string>(config.ExcludedLibraryIds);
-                        if (excludedIds.Any())
-                        {
-                            var libraries = _libraryManager.GetVirtualFolders();
-                            foreach (var library in libraries)
-                            {
-                                if (excludedIds.Contains(library.Id.ToString()))
-                                {
-                                    newCache.AddRange(library.Locations);
-                                }
-                            }
-                        }
-                        _excludedLibraryPathsCache = newCache;
-                        _cachedConfigVersion = config.ConfigurationVersion;
-                    }
-                    currentExcludedPaths = _excludedLibraryPathsCache ?? new List<string>();
-                }
-
-                if (currentExcludedPaths.Any())
-                {
-                    var fullItem = _libraryManager.GetItemById(session.NowPlayingItem.Id);
-                    if (fullItem != null && !string.IsNullOrEmpty(fullItem.Path))
-                    {
-                        if (currentExcludedPaths.Any(p => fullItem.Path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
-                        {
-                            return;
-                        }
-                    }
-                }
+                if (IsSessionExcluded(session, config)) return;
 
                 if (config.EnableWatchTimeLimiter)
                 {
@@ -267,17 +348,14 @@ namespace WatchingEye
 
             var transcodeInfo = currentSession.TranscodingInfo;
 
-            // Case 1: Pure remux. Video and audio are direct streams.
             if (transcodeInfo.IsVideoDirect && transcodeInfo.IsAudioDirect)
             {
-                // If the setting to notify on container changes is off, don't proceed.
                 if (!config.NotifyOnContainerChange)
                 {
                     _logger?.Info("[TranscodeMonitor] Suppressing notification for container remux as per configuration.");
                     return;
                 }
             }
-            // Case 2: Audio transcode with direct video (not a pure remux).
             else if (transcodeInfo.IsVideoDirect && !transcodeInfo.IsAudioDirect)
             {
                 if (!config.NotifyOnAudioOnlyTranscode)
@@ -313,7 +391,6 @@ namespace WatchingEye
 
         private static async Task SendNotificationAsync(SessionInfo session, string header, string text, int initialDelay, int maxNotifications, int delayBetween, bool useConfirmationButton, ConcurrentDictionary<string, int> sentCounts)
         {
-            // If a confirmation button is used, the notification should only ever be sent once.
             if (useConfirmationButton)
             {
                 maxNotifications = 1;
@@ -366,7 +443,7 @@ namespace WatchingEye
                     {
                         await Task.Delay(delayBetween * 1000).ConfigureAwait(false);
                     }
-                    else // Break the loop if no further delay is needed
+                    else 
                     {
                         break;
                     }

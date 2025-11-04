@@ -306,6 +306,25 @@
                     </div>
 
                     <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <h2 style="margin-top: 0;">Paused Stream Timeout</h2>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnablePausedStreamTimeout" data-config-key="EnablePausedStreamTimeout" /><span>Enable Paused Stream Timeout</span></label>
+                            <div class="fieldDescription">If enabled, playback will be stopped if a stream remains paused for longer than the specified duration. Exclusions will be respected.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="numPausedStreamTimeoutMinutes" label="Timeout Duration (minutes):" data-config-key="PausedStreamTimeoutMinutes" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtPausedStreamTimeoutMessage" label="Timeout Message:" data-config-key="PausedStreamTimeoutMessage" />
+                            <div class="fieldDescription">Message to display when a paused stream is stopped.</div>
+                        </div>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableConfirmationButtonOnPausedStreamTimeout" data-config-key="EnableConfirmationButtonOnPausedStreamTimeout" /><span>Show confirmation button for Timeout message</span></label>
+                            <div class="fieldDescription">If enabled, the timeout message will require manual dismissal.</div>
+                        </div>
+                    </div>
+
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
                         <h2 style="margin-top: 0;">General Notification Settings</h2>
 
                         <div class="inputContainer">
