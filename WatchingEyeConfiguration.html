@@ -185,6 +185,7 @@
             <div data-role="controlgroup" data-type="horizontal" class="localnav">
                 <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="notificationsPage">Notifications</a>
                 <a is="emby-linkbutton" class="nav-button ui-btn-active" href="#" data-role="button" data-target="limiterPage">Watch Time Limiter</a>
+                <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="libraryRestrictionsPage">Library Restrictions</a>
                 <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="loggingPage">Logging</a>
                 <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="remoteAccessPage">Remote Access & API</a>
             </div>
@@ -384,6 +385,15 @@
                         <button is="emby-button" type="button" class="raised button-cancel" id="btnResetAll" style="margin-top: 1em;">
                             <span>Reset All Users</span>
                         </button>
+                    </div>
+                </div>
+
+                <div id="libraryRestrictionsPage" class="hide">
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <h2 style="margin-top: 0;">Library Time Restrictions</h2>
+                        <div class="fieldDescription">Set specific time windows when playback from certain libraries is allowed. These rules apply to all users, unless a user is in an exclusion list.</div>
+                        <div id="libraryRestrictionsContainer" style="margin-top: 1.5em;">
+                        </div>
                     </div>
                 </div>
 

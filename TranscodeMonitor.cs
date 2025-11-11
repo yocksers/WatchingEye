@@ -219,6 +219,30 @@ namespace WatchingEye
             }
         }
 
+        private static bool IsOutsideLibraryTimeWindow(LibraryTimeRestriction restriction, DateTime now)
+        {
+            if (restriction.AllowedDays != null && restriction.AllowedDays.Count < 7)
+            {
+                if (!restriction.AllowedDays.Contains((int)now.DayOfWeek))
+                {
+                    return true;
+                }
+            }
+
+            var startHour = restriction.StartTime;
+            var endHour = restriction.EndTime;
+            var currentHour = now.TimeOfDay.TotalHours;
+
+            if (startHour >= endHour)
+            {
+                return currentHour >= endHour && currentHour < startHour;
+            }
+            else
+            {
+                return currentHour < startHour || currentHour >= endHour;
+            }
+        }
+
         private static void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
         {
             try
@@ -230,6 +254,46 @@ namespace WatchingEye
                     return;
 
                 if (IsSessionExcluded(session, config)) return;
+
+                if (config.LibraryTimeRestrictions.Any(l => l.IsEnabled))
+                {
+                    var fullItem = _libraryManager?.GetItemById(session.NowPlayingItem.Id);
+                    if (fullItem != null && !string.IsNullOrEmpty(fullItem.Path) && _libraryManager != null)
+                    {
+                        string? libraryId = null;
+                        foreach (var library in _libraryManager.GetVirtualFolders())
+                        {
+                            if (library.Locations.Any(loc => fullItem.Path.StartsWith(loc, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                libraryId = library.Id.ToString();
+                                break;
+                            }
+                        }
+
+                        if (libraryId != null)
+                        {
+                            var restriction = config.LibraryTimeRestrictions.FirstOrDefault(r => r.LibraryId == libraryId && r.IsEnabled);
+                            if (restriction != null && IsOutsideLibraryTimeWindow(restriction, DateTime.Now))
+                            {
+                                _logger?.Info($"[TranscodeMonitor] Blocking playback for user '{session.UserName}' from library '{restriction.LibraryName}' due to time restriction.");
+
+                                var message = new MessageCommand
+                                {
+                                    Header = "Playback Not Allowed",
+                                    Text = restriction.BlockMessage,
+                                    TimeoutMs = 10000
+                                };
+
+                                if (_sessionManager != null)
+                                {
+                                    _ = _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
+                                    _ = _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
+                                }
+                                return;
+                            }
+                        }
+                    }
+                }
 
                 if (config.EnableWatchTimeLimiter)
                 {
@@ -443,7 +507,7 @@ namespace WatchingEye
                     {
                         await Task.Delay(delayBetween * 1000).ConfigureAwait(false);
                     }
-                    else 
+                    else
                     {
                         break;
                     }

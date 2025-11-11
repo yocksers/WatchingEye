@@ -118,6 +118,7 @@
             this.allUsers = [];
             this.allClients = [];
             this.allLibraries = [];
+            this.editingLibraryId = null;
 
             view.querySelector('#numExternalWebServerPort').addEventListener('input', (e) => {
                 const port = e.target.value || 9988;
@@ -142,7 +143,7 @@
                     view.querySelectorAll('.localnav .nav-button').forEach(b => b.classList.remove('ui-btn-active'));
                     target.classList.add('ui-btn-active');
 
-                    view.querySelectorAll('#notificationsPage, #limiterPage, #loggingPage, #remoteAccessPage').forEach(page => {
+                    view.querySelectorAll('#notificationsPage, #limiterPage, #loggingPage, #remoteAccessPage, #libraryRestrictionsPage').forEach(page => {
                         page.classList.toggle('hide', page.id !== targetId);
                     });
 
@@ -178,6 +179,32 @@
                     toast('Event log has been cleared.');
                     renderLogs(view);
                 });
+            });
+
+            view.querySelector('#libraryRestrictionsContainer').addEventListener('click', (e) => {
+                const buttonTarget = e.target.closest('button');
+                if (!buttonTarget) return;
+
+                const libraryId = buttonTarget.getAttribute('data-libraryid');
+                if (!libraryId) return;
+
+                if (buttonTarget.classList.contains('btnEditLibraryRestriction')) {
+                    if (this.editingLibraryId || this.editingUserId) return;
+                    this.editingLibraryId = libraryId;
+                    this.renderLibraryRestrictions(this.view, this.config);
+                    return;
+                }
+
+                if (buttonTarget.classList.contains('btn-cancel-edit-library')) {
+                    this.editingLibraryId = null;
+                    this.renderLibraryRestrictions(this.view, this.config);
+                    return;
+                }
+
+                if (buttonTarget.classList.contains('btn-save-library-inline')) {
+                    this.saveLibraryRestrictionInline(buttonTarget, libraryId);
+                    return;
+                }
             });
 
             view.querySelector('#limitedUsersContainer').addEventListener('click', (e) => {
@@ -303,6 +330,143 @@
                     }).catch(() => toast({ type: 'error', text: 'Error resetting time.' }));
                 }
             });
+        }
+
+        getLibraryRestrictionDisplayHtml(library, restriction) {
+            if (!restriction || !restriction.IsEnabled) {
+                return `
+            <div class="listItem" style="display:flex; align-items: center; padding: 0.5em 0;">
+                <div class="listItemBody" style="flex-grow: 1;">
+                    <h3 class="listItemTitle">${library.Name}</h3>
+                    <div class="listItemText secondary">No restriction active.</div>
+                </div>
+                <button is="emby-button" type="button" class="raised mini btnEditLibraryRestriction" data-libraryid="${library.Id}" title="Add Restriction">
+                    <span>Add Restriction</span>
+                </button>
+            </div>`;
+            }
+
+            const timeWindowText = `Plays between ${formatTime(restriction.StartTime || 0)} and ${formatTime(restriction.EndTime || 0)}`;
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const allowedDays = restriction.AllowedDays && restriction.AllowedDays.length < 7
+                ? restriction.AllowedDays.map(d => days[d]).join(', ')
+                : 'All Days';
+
+            return `
+        <div class="listItem" style="display:flex; align-items: center; padding: 0.5em 0;">
+            <div class="listItemBody" style="flex-grow: 1;">
+                <h3 class="listItemTitle">${library.Name}</h3>
+                <div class="listItemText">${timeWindowText}</div>
+                <div class="listItemText secondary">On: ${allowedDays}</div>
+            </div>
+            <button is="emby-button" type="button" class="fab mini raised paper-icon-button-light btnEditLibraryRestriction" data-libraryid="${library.Id}" title="Edit Restriction">
+                <i class="md-icon">edit</i>
+            </button>
+        </div>`;
+        }
+
+        getLibraryRestrictionEditorHtml(library, restriction) {
+            const isNew = !restriction;
+            const r = restriction || {
+                IsEnabled: false,
+                StartTime: 8,
+                EndTime: 22,
+                AllowedDays: [0, 1, 2, 3, 4, 5, 6],
+                BlockMessage: "Playback from this library is not allowed at this time."
+            };
+
+            const timeOptions = Array.from({ length: 48 }, (_, i) => `<option value="${i / 2}">${String(Math.floor(i / 2)).padStart(2, '0')}:${String((i % 2) * 30).padStart(2, '0')}</option>`).join('');
+
+            return `
+            <div class="user-editor" data-libraryid="${library.Id}">
+                <h3>Editing: ${library.Name}</h3>
+                <div class="checkboxContainer">
+                    <label><input is="emby-checkbox" type="checkbox" class="edit-lib-enabled" ${r.IsEnabled ? 'checked' : ''} /><span>Enable Time Restriction for this Library</span></label>
+                </div>
+                <div class="inputContainer">
+                    <input is="emby-input" class="edit-lib-message" type="text" label="Block Message:" value="${r.BlockMessage}" />
+                    <div class="fieldDescription">Message shown to the user when playback is blocked.</div>
+                </div>
+                <div style="display: flex; gap: 1em; margin-top: 1em;">
+                    <div class="inputContainer" style="flex-grow: 1;"><select is="emby-select" class="edit-lib-start" label="From:">${timeOptions}</select></div>
+                    <div class="inputContainer" style="flex-grow: 1;"><select is="emby-select" class="edit-lib-end" label="To:">${timeOptions}</select></div>
+                </div>
+                <h3 style="margin-top: 1.5em; margin-bottom: 0.5em;">Allowed Days:</h3>
+                <div class="allowed-days-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.5em;">
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-lib-allowed-day" data-day="0" /><span>Sunday</span></label>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-lib-allowed-day" data-day="1" /><span>Monday</span></label>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-lib-allowed-day" data-day="2" /><span>Tuesday</span></label>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-lib-allowed-day" data-day="3" /><span>Wednesday</span></label>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-lib-allowed-day" data-day="4" /><span>Thursday</span></label>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-lib-allowed-day" data-day="5" /><span>Friday</span></label>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-lib-allowed-day" data-day="6" /><span>Saturday</span></label>
+                </div>
+                <div class="user-editor-buttons">
+                   <button is="emby-button" type="button" class="raised button-submit btn-save-library-inline" data-libraryid="${library.Id}"><span>Save Settings</span></button>
+                   <button is="emby-button" type="button" class="raised button-cancel btn-cancel-edit-library" data-libraryid="${library.Id}"><span>Cancel</span></button>
+                </div>
+            </div>`;
+        }
+
+        saveLibraryRestrictionInline(saveButton, libraryId) {
+            const editorContainer = saveButton.closest('.user-editor');
+            if (!editorContainer) return;
+
+            const library = this.allLibraries.find(l => l.Id === libraryId);
+            if (!library) return;
+
+            let restriction = this.config.LibraryTimeRestrictions.find(r => r.LibraryId === libraryId);
+            if (!restriction) {
+                restriction = { LibraryId: libraryId, LibraryName: library.Name };
+                this.config.LibraryTimeRestrictions.push(restriction);
+            }
+
+            restriction.LibraryName = library.Name;
+            restriction.IsEnabled = editorContainer.querySelector('.edit-lib-enabled').checked;
+            restriction.StartTime = parseFloat(editorContainer.querySelector('.edit-lib-start').value);
+            restriction.EndTime = parseFloat(editorContainer.querySelector('.edit-lib-end').value);
+            restriction.BlockMessage = editorContainer.querySelector('.edit-lib-message').value;
+            restriction.AllowedDays = Array.from(editorContainer.querySelectorAll('.edit-lib-allowed-day:checked')).map(cb => parseInt(cb.getAttribute('data-day')));
+
+            toast(`Settings for '${library.Name}' updated. Click the main Save button to apply.`);
+            this.editingLibraryId = null;
+            this.renderLibraryRestrictions(this.view, this.config);
+        }
+
+        renderLibraryRestrictions(view, config) {
+            const container = view.querySelector('#libraryRestrictionsContainer');
+            if (!config.LibraryTimeRestrictions) {
+                config.LibraryTimeRestrictions = [];
+            }
+
+            const ignoredLibraryTypes = ['collections', 'playlists', 'boxsets'];
+            const displayLibraries = this.allLibraries.filter(lib => !lib.CollectionType || !ignoredLibraryTypes.includes(lib.CollectionType.toLowerCase()));
+
+            let listHtml = displayLibraries.map(library => {
+                const restriction = config.LibraryTimeRestrictions.find(r => r.LibraryId === library.Id);
+                if (this.editingLibraryId === library.Id) {
+                    return this.getLibraryRestrictionEditorHtml(library, restriction);
+                } else {
+                    return this.getLibraryRestrictionDisplayHtml(library, restriction);
+                }
+            }).join('<hr style="margin: 1em 0; border-color: #444;" />');
+
+            container.innerHTML = `<div class="paper-card" style="padding: 1em;">${listHtml}</div>`;
+
+            if (this.editingLibraryId) {
+                const editor = container.querySelector(`.user-editor[data-libraryid="${this.editingLibraryId}"]`);
+                if (editor) {
+                    const restriction = config.LibraryTimeRestrictions.find(r => r.LibraryId === this.editingLibraryId) || {};
+                    editor.querySelector('.edit-lib-start').value = restriction.StartTime === 0 ? 0 : restriction.StartTime || 8;
+                    editor.querySelector('.edit-lib-end').value = restriction.EndTime === 0 ? 0 : restriction.EndTime || 22;
+
+                    const allowedDays = restriction.AllowedDays || [0, 1, 2, 3, 4, 5, 6];
+                    allowedDays.forEach(day => {
+                        const checkbox = editor.querySelector(`.edit-lib-allowed-day[data-day="${day}"]`);
+                        if (checkbox) checkbox.checked = true;
+                    });
+                }
+            }
         }
 
         getLimitedUserDisplayHtml(user, status) {
@@ -666,8 +830,10 @@
                 }
 
                 this.editingUserId = null;
+                this.editingLibraryId = null;
                 this.renderLimitedUsers(view, this.config);
                 this.renderExclusionLists(view, this.config);
+                this.renderLibraryRestrictions(view, this.config);
                 loading.hide();
             }).catch(err => {
                 loading.hide();
