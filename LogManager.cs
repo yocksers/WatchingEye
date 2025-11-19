@@ -157,7 +157,14 @@ namespace WatchingEye
 
                     File.WriteAllText(tempFilePath, json);
 
-                    File.Replace(tempFilePath, _logFilePath, null);
+                    if (File.Exists(_logFilePath))
+                    {
+                        File.Replace(tempFilePath, _logFilePath, null);
+                    }
+                    else
+                    {
+                        File.Move(tempFilePath, _logFilePath);
+                    }
 
                     _isDirty = false;
                 }

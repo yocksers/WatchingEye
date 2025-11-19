@@ -625,7 +625,15 @@ namespace WatchingEye
 
                     var tempFilePath = _watchTimeDataPath + ".tmp";
                     File.WriteAllText(tempFilePath, json);
-                    File.Replace(tempFilePath, _watchTimeDataPath, null);
+
+                    if (File.Exists(_watchTimeDataPath))
+                    {
+                        File.Replace(tempFilePath, _watchTimeDataPath, null);
+                    }
+                    else
+                    {
+                        File.Move(tempFilePath, _watchTimeDataPath);
+                    }
                 }
                 catch (Exception ex)
                 {
