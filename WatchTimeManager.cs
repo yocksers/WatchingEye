@@ -25,7 +25,7 @@ namespace WatchingEye
         private static string? _watchTimeDataPath;
 
         private static bool _isRunning = false;
-        private static readonly int TimerIntervalSeconds = 15; 
+        private static readonly int TimerIntervalSeconds = 15;
 
         private static ConcurrentDictionary<string, UserWatchData> _userWatchData = new();
         private static readonly ConcurrentDictionary<string, DateTime> _sessionLastUpdate = new();
@@ -71,6 +71,26 @@ namespace WatchingEye
             _sessionLastUpdate.TryRemove(sessionId, out _);
         }
 
+        private static LimitedUser? GetUserConfig(string userId, PluginConfiguration config)
+        {
+            if (string.IsNullOrEmpty(userId)) return null;
+
+            if (config.ExcludedUserIds.Contains(userId, StringComparer.OrdinalIgnoreCase)) return null;
+
+            var specificUser = config.LimitedUsers.FirstOrDefault(u => u.UserId.Equals(userId, StringComparison.OrdinalIgnoreCase));
+            if (specificUser != null)
+            {
+                return specificUser.IsEnabled ? specificUser : null;
+            }
+
+            if (config.EnableGlobalLimit)
+            {
+                return config.GlobalLimitedUser;
+            }
+
+            return null;
+        }
+
         private static void OnTimerElapsed(object? state)
         {
             try
@@ -84,47 +104,37 @@ namespace WatchingEye
                     return;
                 }
 
-                var limitedUsersMap = config.LimitedUsers.ToDictionary(u => u.UserId, u => u, StringComparer.OrdinalIgnoreCase);
-                if (!limitedUsersMap.Any()) return;
-
                 bool dataChanged = false;
                 var nowUtc = DateTime.UtcNow;
 
-                foreach (var userConfig in limitedUsersMap.Values)
+                foreach (var userId in _userWatchData.Keys)
                 {
-                    dataChanged |= ProcessResetsForUser(userConfig, nowUtc);
-                }
-
-                var userIdsToClean = _userWatchData.Keys.Except(limitedUsersMap.Keys).ToList();
-                foreach (var userIdToClean in userIdsToClean)
-                {
-                    if (_userWatchData.TryRemove(userIdToClean, out _))
+                    var userConfig = GetUserConfig(userId, config);
+                    if (userConfig != null)
                     {
-                        _logger.Info($"[WatchTimeManager] Removed watch time data for user ID {userIdToClean}.");
-                        dataChanged = true;
+                        dataChanged |= ProcessResetsForUser(userId, userConfig, nowUtc);
                     }
                 }
 
-                var activeLimitedSessions = _sessionManager.Sessions.Where(s =>
+                var activeSessions = _sessionManager.Sessions.Where(s =>
                     !string.IsNullOrEmpty(s.UserId) &&
-                    limitedUsersMap.TryGetValue(s.UserId, out var user) &&
-                    user.IsEnabled &&
                     s.NowPlayingItem != null &&
                     s.PlayState is { IsPaused: false }
                 ).ToList();
 
-                var activeUsers = activeLimitedSessions
+                var activeUsers = activeSessions
                     .GroupBy(s => s.UserId)
                     .Select(g => new
                     {
                         UserId = g.Key,
-                        UserConfig = limitedUsersMap[g.Key],
+                        UserConfig = GetUserConfig(g.Key, config),
                         Sessions = g.ToList()
-                    });
+                    })
+                    .Where(u => u.UserConfig != null);
 
                 foreach (var user in activeUsers)
                 {
-                    if (user.UserConfig.EnableTimeWindow && IsOutsideTimeWindow(user.UserConfig, DateTime.Now))
+                    if (user.UserConfig!.EnableTimeWindows && IsOutsideTimeWindow(user.UserConfig, DateTime.Now))
                     {
                         StopPlaybackForUser(user.UserId, PlaybackBlockReason.OutsideTimeWindow).GetAwaiter().GetResult();
                         continue;
@@ -180,11 +190,11 @@ namespace WatchingEye
             }
         }
 
-        private static bool ProcessResetsForUser(LimitedUser userConfig, DateTime nowUtc)
+        private static bool ProcessResetsForUser(string userId, LimitedUser userConfig, DateTime nowUtc)
         {
             var dataChanged = false;
             var needsOverallReset = false;
-            var userData = _userWatchData.GetOrAdd(userConfig.UserId, new UserWatchData { UserId = userConfig.UserId });
+            var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
 
             var localNow = nowUtc.ToLocalTime();
 
@@ -265,22 +275,25 @@ namespace WatchingEye
 
         private static bool IsOutsideTimeWindow(LimitedUser userConfig, DateTime now)
         {
-            if (userConfig.AllowedDays != null && userConfig.AllowedDays.Count < 7)
+            var ruleForToday = userConfig.TimeWindows?.FirstOrDefault(w => w.Day == now.DayOfWeek);
+
+            if (ruleForToday == null || !ruleForToday.IsEnabled)
             {
-                if (!userConfig.AllowedDays.Contains((int)now.DayOfWeek))
-                {
-                    return true;
-                }
+                return true;
             }
 
-            var startHour = userConfig.WatchWindowStartHour;
-            var endHour = userConfig.WatchWindowEndHour;
+            var startHour = ruleForToday.StartHour;
+            var endHour = ruleForToday.EndHour;
             var currentHour = now.TimeOfDay.TotalHours;
 
             if (startHour >= endHour)
+            {
                 return currentHour >= endHour && currentHour < startHour;
+            }
             else
+            {
                 return currentHour < startHour || currentHour >= endHour;
+            }
         }
 
         private static void ProcessThresholdNotifications(SessionInfo session, LimitedUser userConfig, UserWatchData userData)
@@ -318,13 +331,13 @@ namespace WatchingEye
                 if (percentageWatched >= threshold && !notifiedForUser.Contains(threshold))
                 {
                     var message = $"Watch Time Warning: You have used over {threshold}% of your {period} limit.";
-                    SendNotificationAsync(session, "Watch Time Warning", message, 10000).GetAwaiter().GetResult();
+                    InAppNotificationService.SendNotificationAsync(session, "Watch Time Warning", message, false).GetAwaiter().GetResult();
                     notifiedForUser.Add(threshold);
 
                     var config = Plugin.Instance?.Configuration;
                     if (config != null && config.EnableWatchLimitNotifications && !string.IsNullOrEmpty(session.UserName))
                     {
-                        NotificationService.SendThresholdNotification(session.UserName, period, threshold);
+                        ServerNotificationService.SendThresholdNotification(session.UserName, period, threshold);
                     }
                 }
             }
@@ -335,30 +348,30 @@ namespace WatchingEye
             var config = Plugin.Instance?.Configuration;
             if (config == null || !config.EnableWatchTimeLimiter || string.IsNullOrEmpty(userId)) return PlaybackBlockReason.Allowed;
 
-            var limitedUser = config.LimitedUsers.FirstOrDefault(u => u.UserId == userId);
-            if (limitedUser == null || !limitedUser.IsEnabled) return PlaybackBlockReason.Allowed;
+            var userConfig = GetUserConfig(userId, config);
+            if (userConfig == null) return PlaybackBlockReason.Allowed;
 
             var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
 
             if (userData.TimeOutUntil > DateTime.UtcNow)
                 return PlaybackBlockReason.TimedOut;
 
-            if (limitedUser.EnableTimeWindow && IsOutsideTimeWindow(limitedUser, DateTime.Now))
+            if (userConfig.EnableTimeWindows && IsOutsideTimeWindow(userConfig, DateTime.Now))
                 return PlaybackBlockReason.OutsideTimeWindow;
 
             if (_limitReachedNotified.ContainsKey(userId)) return PlaybackBlockReason.TimeLimitExceeded;
 
 
-            if (limitedUser.EnableDailyLimit && limitedUser.DailyLimitMinutes > 0 && userData.WatchedTimeTicksDaily >= (TimeSpan.FromMinutes(limitedUser.DailyLimitMinutes).Ticks + userData.TimeCreditTicksDaily))
+            if (userConfig.EnableDailyLimit && userConfig.DailyLimitMinutes > 0 && userData.WatchedTimeTicksDaily >= (TimeSpan.FromMinutes(userConfig.DailyLimitMinutes).Ticks + userData.TimeCreditTicksDaily))
                 return PlaybackBlockReason.TimeLimitExceeded;
 
-            if (limitedUser.EnableWeeklyLimit && limitedUser.WeeklyLimitHours > 0 && userData.WatchedTimeTicksWeekly >= (TimeSpan.FromHours(limitedUser.WeeklyLimitHours).Ticks + userData.TimeCreditTicksWeekly))
+            if (userConfig.EnableWeeklyLimit && userConfig.WeeklyLimitHours > 0 && userData.WatchedTimeTicksWeekly >= (TimeSpan.FromHours(userConfig.WeeklyLimitHours).Ticks + userData.TimeCreditTicksWeekly))
                 return PlaybackBlockReason.TimeLimitExceeded;
 
-            if (limitedUser.EnableMonthlyLimit && limitedUser.MonthlyLimitHours > 0 && userData.WatchedTimeTicksMonthly >= (TimeSpan.FromHours(limitedUser.MonthlyLimitHours).Ticks + userData.TimeCreditTicksMonthly))
+            if (userConfig.EnableMonthlyLimit && userConfig.MonthlyLimitHours > 0 && userData.WatchedTimeTicksMonthly >= (TimeSpan.FromHours(userConfig.MonthlyLimitHours).Ticks + userData.TimeCreditTicksMonthly))
                 return PlaybackBlockReason.TimeLimitExceeded;
 
-            if (limitedUser.EnableYearlyLimit && limitedUser.YearlyLimitHours > 0 && userData.WatchedTimeTicksYearly >= (TimeSpan.FromHours(limitedUser.YearlyLimitHours).Ticks + userData.TimeCreditTicksYearly))
+            if (userConfig.EnableYearlyLimit && userConfig.YearlyLimitHours > 0 && userData.WatchedTimeTicksYearly >= (TimeSpan.FromHours(userConfig.YearlyLimitHours).Ticks + userData.TimeCreditTicksYearly))
                 return PlaybackBlockReason.TimeLimitExceeded;
 
             return PlaybackBlockReason.Allowed;
@@ -432,18 +445,18 @@ namespace WatchingEye
 
                         if (config.EnableWatchLimitNotifications)
                         {
-                            NotificationService.SendLimitReachedNotification(username, clientNames);
+                            ServerNotificationService.SendLimitReachedNotification(username, clientNames);
                         }
                     }
                     break;
                 case PlaybackBlockReason.OutsideTimeWindow:
                     message = config.TimeWindowBlockedMessageText;
                     header = "Playback Not Allowed";
-                    var limitedUser = config.LimitedUsers.FirstOrDefault(u => u.UserId == userId);
-                    if (limitedUser != null)
+                    var userConfig = GetUserConfig(userId, config);
+                    if (userConfig != null)
                     {
-                        var startTime = FormatTimeFromDouble(limitedUser.WatchWindowStartHour);
-                        var endTime = FormatTimeFromDouble(limitedUser.WatchWindowEndHour);
+                        var startTime = FormatTimeFromDouble(userConfig.TimeWindows.FirstOrDefault(d => d.Day == DateTime.Now.DayOfWeek)?.StartHour ?? 0);
+                        var endTime = FormatTimeFromDouble(userConfig.TimeWindows.FirstOrDefault(d => d.Day == DateTime.Now.DayOfWeek)?.EndHour ?? 0);
                         message = message.Replace("{start_time}", startTime)
                                          .Replace("{end_time}", endTime);
                     }
@@ -468,20 +481,8 @@ namespace WatchingEye
             foreach (var session in allUserSessions)
             {
                 await _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
-                await SendNotificationAsync(session, header, message, 10000);
+                await InAppNotificationService.SendNotificationAsync(session, header, message, config.EnableConfirmationButtonOnWatchTimeLimit);
             }
-        }
-
-        private static async Task SendNotificationAsync(SessionInfo session, string header, string text, int? timeoutMs)
-        {
-            if (_sessionManager == null) return;
-            var message = new MessageCommand
-            {
-                Header = header,
-                Text = text,
-                TimeoutMs = timeoutMs
-            };
-            await _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
         }
 
         public static List<LimitedUserStatus> GetLimitedUsersStatus()

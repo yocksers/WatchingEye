@@ -193,6 +193,13 @@
             <form class="watchingEyeForm">
                 <div id="notificationsPage" class="hide">
                     <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <div class="firewall-info-box" style="margin-bottom: 2em;">
+                            <h3 style="margin-top: 0;">Confirmation Button Compatibility</h3>
+                            <p style="margin: 0.5em 0 0 0;">
+                                Please note: The 'Show confirmation button' feature creates a message that requires manual dismissal. This works best in <strong>web-based clients</strong>.
+                                Due to limitations in other applications, on clients like <strong>Android, Fire TV, or Roku</strong>, the message will instead appear as a long-lasting pop-up that disappears on its own.
+                            </p>
+                        </div>
                         <h2 style="margin-top: 0;">Transcode Notification</h2>
                         <div class="checkboxContainer">
                             <label><input is="emby-checkbox" type="checkbox" id="chkEnableTranscodeWarning" data-config-key="EnableTranscodeWarning" /><span>Enable Transcode Warning</span></label>
@@ -375,8 +382,22 @@
                         <div class="inputContainer">
                             <input is="emby-input" type="text" id="txtTimeOutMessageText" label="Time-Out Message Text:" data-config-key="TimeOutMessageText" />
                         </div>
+                    </div>
 
-                        <h3 style="margin-top:2em;">Limited Users</h3>
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <h2 style="margin-top:0;">Global Rules for All Users</h2>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableGlobalLimit" data-config-key="EnableGlobalLimit" /><span>Enable Global Watch Time Rules</span></label>
+                            <div class="fieldDescription">If enabled, these rules will apply to ALL users who are not in the exclusion list and do not have their own specific rules below.</div>
+                        </div>
+
+                        <div id="globalUserEditorContainer" class="hide" style="margin-top:1em; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1.5em;">
+                        </div>
+                    </div>
+
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <h3 style="margin-top:0;">Specific Rules for Individual Users</h3>
+                        <div class="fieldDescription">Use this section to add users who need different rules from the global settings, or to manage users when global rules are disabled.</div>
                         <div id="limitedUsersContainer">
                         </div>
                         <button is="emby-button" type="button" class="raised button-submit" id="btnAddLimitedUser" style="margin-top: 1em;">

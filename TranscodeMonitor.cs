@@ -105,15 +105,8 @@ namespace WatchingEye
 
                         if (_sessionPauseStartTime.TryRemove(session.Id, out _))
                         {
-                            var message = new MessageCommand
-                            {
-                                Header = "Playback Stopped",
-                                Text = config.PausedStreamTimeoutMessage,
-                                TimeoutMs = config.EnableConfirmationButtonOnPausedStreamTimeout ? (int?)null : 7000
-                            };
-
+                            await InAppNotificationService.SendNotificationAsync(session.Id, "Playback Stopped", config.PausedStreamTimeoutMessage, config.EnableConfirmationButtonOnPausedStreamTimeout).ConfigureAwait(false);
                             await _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
-                            await _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
                         }
                     }
                 }
@@ -276,18 +269,10 @@ namespace WatchingEye
                             if (restriction != null && IsOutsideLibraryTimeWindow(restriction, DateTime.Now))
                             {
                                 _logger?.Info($"[TranscodeMonitor] Blocking playback for user '{session.UserName}' from library '{restriction.LibraryName}' due to time restriction.");
-
-                                var message = new MessageCommand
-                                {
-                                    Header = "Playback Not Allowed",
-                                    Text = restriction.BlockMessage,
-                                    TimeoutMs = 10000
-                                };
-
                                 if (_sessionManager != null)
                                 {
+                                    _ = InAppNotificationService.SendNotificationAsync(session.Id, "Playback Not Allowed", restriction.BlockMessage, false).ConfigureAwait(false);
                                     _ = _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
-                                    _ = _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
                                 }
                                 return;
                             }
@@ -328,7 +313,7 @@ namespace WatchingEye
         {
             if (config.EnablePlaybackStartNotification && !string.IsNullOrWhiteSpace(config.PlaybackStartMessageText))
             {
-                await SendNotificationAsync(session, "Playback Started", config.PlaybackStartMessageText,
+                await SendNotificationLoopAsync(session, "Playback Started", config.PlaybackStartMessageText,
                     config.PlaybackStartInitialDelaySeconds, config.PlaybackStartMaxNotifications,
                     config.PlaybackStartDelayBetweenMessagesSeconds, config.EnableConfirmationButtonOnPlaybackStart, _playbackStartNotificationsSent);
             }
@@ -340,7 +325,7 @@ namespace WatchingEye
             {
                 if (config.NotifyOnDirectPlay && !string.IsNullOrWhiteSpace(config.DirectPlayMessageText))
                 {
-                    await SendNotificationAsync(session, "Direct Play", config.DirectPlayMessageText,
+                    await SendNotificationLoopAsync(session, "Direct Play", config.DirectPlayMessageText,
                                                 config.InitialDelaySeconds, 1, 0, config.EnableConfirmationButtonOnDirectPlay, _directPlayNotificationsSent);
                 }
                 return;
@@ -357,53 +342,56 @@ namespace WatchingEye
                 return;
             }
 
-            if (config.EnableResolutionBlocking && currentSession.NowPlayingItem.Height > config.MaxTranscodingResolution)
+            int actualHeight = 0;
+            if (currentSession.NowPlayingItem?.MediaStreams != null)
             {
-                _logger?.Info($"[TranscodeMonitor] Blocking transcode for user '{currentSession.UserName}' on client '{currentSession.Client}'. Resolution '{currentSession.NowPlayingItem.Height}p' is over the limit of '{config.MaxTranscodingResolution}p'.");
+                var videoStream = currentSession.NowPlayingItem.MediaStreams.FirstOrDefault(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Video);
+                if (videoStream != null)
+                {
+                    actualHeight = videoStream.Height ?? 0;
+                }
+            }
+
+            if (actualHeight == 0)
+            {
+                actualHeight = currentSession.NowPlayingItem?.Height ?? 0;
+            }
+
+            if (config.EnableResolutionBlocking && actualHeight > config.MaxTranscodingResolution)
+            {
+                _logger?.Info($"[TranscodeMonitor] Blocking transcode for user '{currentSession.UserName}' on client '{currentSession.Client}'. Resolution '{actualHeight}p' is over the limit of '{config.MaxTranscodingResolution}p'.");
 
                 var text = config.MessageTextResolutionBlocked;
                 if (string.IsNullOrWhiteSpace(text))
                 {
-                    text = $"Transcoding video with a resolution of {currentSession.NowPlayingItem.Height}p is not permitted. The maximum allowed resolution is {config.MaxTranscodingResolution}p.";
+                    text = $"Transcoding video with a resolution of {actualHeight}p is not permitted. The maximum allowed resolution is {config.MaxTranscodingResolution}p.";
                 }
 
-                text = text.Replace("{height}", currentSession.NowPlayingItem.Height.ToString())
+                text = text.Replace("{height}", actualHeight.ToString())
                            .Replace("{max}", config.MaxTranscodingResolution.ToString());
-
-                var message = new MessageCommand
-                {
-                    Header = "Playback Blocked",
-                    Text = text,
-                    TimeoutMs = null
-                };
 
                 if (_sessionManager == null) return;
                 _sessionsBeingBlocked.TryAdd(currentSession.Id, true);
+                await InAppNotificationService.SendNotificationAsync(currentSession.Id, "Playback Blocked", text, config.EnableConfirmationButtonOnResolutionBlock).ConfigureAwait(false);
                 await _sessionManager.SendPlaystateCommand(null, currentSession.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
-                await _sessionManager.SendMessageCommand(null, currentSession.Id, message, CancellationToken.None).ConfigureAwait(false);
                 return;
             }
 
             if (config.EnableTranscodeBlocking && !string.IsNullOrWhiteSpace(config.BlockedTranscodeFormats))
             {
                 var blockedFormats = new HashSet<string>(config.BlockedTranscodeFormats.Split(',').Select(f => f.Trim()), StringComparer.OrdinalIgnoreCase);
-                var sourceContainer = currentSession.NowPlayingItem.Container;
+                var sourceContainer = currentSession.NowPlayingItem?.Container;
 
                 if (!string.IsNullOrEmpty(sourceContainer) && blockedFormats.Contains(sourceContainer))
                 {
                     _logger?.Info($"[TranscodeMonitor] Blocking transcode for user '{currentSession.UserName}' on client '{currentSession.Client}'. Source format '{sourceContainer}' is on the blocklist.");
 
-                    var message = new MessageCommand
-                    {
-                        Header = "Playback Blocked",
-                        Text = $"Transcoding from the '{sourceContainer.ToUpper()}' container is not permitted by the server administrator.",
-                        TimeoutMs = null
-                    };
+                    var text = $"Transcoding from the '{sourceContainer.ToUpper()}' container is not permitted by the server administrator.";
 
                     if (_sessionManager == null) return;
                     _sessionsBeingBlocked.TryAdd(currentSession.Id, true);
+                    await InAppNotificationService.SendNotificationAsync(currentSession.Id, "Playback Blocked", text, config.EnableConfirmationButtonOnTranscodeBlock).ConfigureAwait(false);
                     await _sessionManager.SendPlaystateCommand(null, currentSession.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
-                    await _sessionManager.SendMessageCommand(null, currentSession.Id, message, CancellationToken.None).ConfigureAwait(false);
                     return;
                 }
             }
@@ -449,11 +437,11 @@ namespace WatchingEye
 
             LogManager.LogTranscode(currentSession, friendlyReasons);
 
-            await SendNotificationAsync(currentSession, "Transcode Warning", messageText, 0,
+            await SendNotificationLoopAsync(currentSession, "Transcode Warning", messageText, 0,
                 config.MaxNotifications, config.DelayBetweenMessagesSeconds, config.EnableConfirmationButtonOnTranscodeWarning, _transcodeNotificationsSent);
         }
 
-        private static async Task SendNotificationAsync(SessionInfo session, string header, string text, int initialDelay, int maxNotifications, int delayBetween, bool useConfirmationButton, ConcurrentDictionary<string, int> sentCounts)
+        private static async Task SendNotificationLoopAsync(SessionInfo session, string header, string text, int initialDelay, int maxNotifications, int delayBetween, bool useConfirmationButton, ConcurrentDictionary<string, int> sentCounts)
         {
             if (useConfirmationButton)
             {
@@ -492,14 +480,7 @@ namespace WatchingEye
                         break;
                     }
 
-                    var message = new MessageCommand
-                    {
-                        Header = header,
-                        Text = text,
-                        TimeoutMs = useConfirmationButton ? null : (int?)7000
-                    };
-
-                    await _sessionManager.SendMessageCommand(null, session.Id, message, CancellationToken.None).ConfigureAwait(false);
+                    await InAppNotificationService.SendNotificationAsync(session.Id, header, text, useConfirmationButton).ConfigureAwait(false);
 
                     sentCount = sentCounts.AddOrUpdate(notificationKey, 1, (_, count) => count + 1);
 

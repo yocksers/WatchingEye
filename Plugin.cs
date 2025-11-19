@@ -89,10 +89,11 @@ namespace WatchingEye
 
         public void Run()
         {
+            InAppNotificationService.Start(_logger, _sessionManager);
             TranscodeMonitor.Start(_sessionManager, _logger, _libraryManager);
             WatchTimeManager.Start(_sessionManager, _logger, _appPaths, _jsonSerializer);
             LogManager.Start(_logger, _jsonSerializer, _appPaths);
-            NotificationService.Start(_logger, _notificationManager);
+            ServerNotificationService.Start(_logger, _notificationManager);
 
             if (Configuration.EnableExternalWebServer)
             {
@@ -110,7 +111,8 @@ namespace WatchingEye
             TranscodeMonitor.Stop();
             WatchTimeManager.Stop();
             LogManager.Stop();
-            NotificationService.Stop();
+            ServerNotificationService.Stop();
+            InAppNotificationService.Stop();
             _externalWebServer?.Stop();
         }
 

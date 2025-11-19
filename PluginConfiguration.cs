@@ -4,6 +4,14 @@ using System.Collections.Generic;
 
 namespace WatchingEye
 {
+    public class DailyTimeWindow
+    {
+        public DayOfWeek Day { get; set; }
+        public double StartHour { get; set; } = 7;
+        public double EndHour { get; set; } = 20;
+        public bool IsEnabled { get; set; } = false;
+    }
+
     public class LimitedUser
     {
         public string UserId { get; set; } = string.Empty;
@@ -31,10 +39,8 @@ namespace WatchingEye
         public bool EnableThresholdNotifications { get; set; } = false;
         public string NotificationThresholds { get; set; } = "80,95";
 
-        public bool EnableTimeWindow { get; set; } = false;
-        public double WatchWindowStartHour { get; set; } = 0;
-        public double WatchWindowEndHour { get; set; } = 23.5;
-        public List<int> AllowedDays { get; set; } = new List<int> { 0, 1, 2, 3, 4, 5, 6 };
+        public bool EnableTimeWindows { get; set; } = false;
+        public List<DailyTimeWindow> TimeWindows { get; set; } = new List<DailyTimeWindow>();
     }
 
     public class UserWatchData
@@ -136,6 +142,9 @@ namespace WatchingEye
         public string ExternalWebServerPassword { get; set; } = "";
         public List<LibraryTimeRestriction> LibraryTimeRestrictions { get; set; } = new List<LibraryTimeRestriction>();
 
+        public bool EnableGlobalLimit { get; set; } = false;
+        public LimitedUser GlobalLimitedUser { get; set; }
+
 
         public PluginConfiguration()
         {
@@ -144,6 +153,17 @@ namespace WatchingEye
             ExcludedClients = new List<string>();
             ExcludedLibraryIds = new List<string>();
             LibraryTimeRestrictions = new List<LibraryTimeRestriction>();
+            GlobalLimitedUser = new LimitedUser
+            {
+                UserId = "global_user_config",
+                Username = "Global Settings",
+                IsEnabled = true,
+                EnableDailyLimit = false,
+                DailyLimitMinutes = 180,
+                EnableWeeklyLimit = true,
+                WeeklyLimitHours = 25,
+                TimeWindows = new List<DailyTimeWindow>()
+            };
         }
     }
 }
