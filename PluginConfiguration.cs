@@ -31,8 +31,12 @@ namespace WatchingEye
         public int YearlyLimitHours { get; set; } = 0;
 
         public double ResetTimeOfDayHours { get; set; } = 3;
+        public bool EnableDailyReset { get; set; } = true;
+        public bool EnableWeeklyReset { get; set; } = false;
         public DayOfWeek WeeklyResetDay { get; set; } = DayOfWeek.Sunday;
+        public bool EnableMonthlyReset { get; set; } = false;
         public int MonthlyResetDay { get; set; } = 1;
+        public bool EnableYearlyReset { get; set; } = false;
         public int YearlyResetMonth { get; set; } = 1;
         public int YearlyResetDay { get; set; } = 1;
 
@@ -162,6 +166,10 @@ namespace WatchingEye
                 DailyLimitMinutes = 180,
                 EnableWeeklyLimit = true,
                 WeeklyLimitHours = 25,
+                EnableDailyReset = true,
+                EnableWeeklyReset = false,
+                EnableMonthlyReset = false,
+                EnableYearlyReset = false,
                 TimeWindows = new List<DailyTimeWindow>()
             };
         }

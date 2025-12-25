@@ -63,6 +63,9 @@
                  </div>`;
             }
             container.innerHTML = html;
+        }).catch(err => {
+            console.error('Error getting web server status:', err);
+            container.innerHTML = '<p style="color: #f44336;">Unable to retrieve web server status. Please check server logs.</p>';
         });
     }
 
@@ -90,6 +93,9 @@
             `;
             }).join('');
             container.innerHTML = html;
+        }).catch(err => {
+            console.error('Error getting log events:', err);
+            container.innerHTML = '<p style="color: #f44336;">Unable to retrieve log events. Please check server logs.</p>';
         });
     }
 
@@ -159,17 +165,48 @@
 
             <!-- Reset Schedule Tab -->
             <div id="tab-schedule-global" class="user-editor-tab-content hide">
+                <div class="fieldDescription" style="margin-bottom: 1.5em;">Configure when watch time counters reset. Only enabled limits will reset on their respective schedules.</div>
+                
                 <div class="inputContainer">
                     <select is="emby-select" id="global_reset-time" label="Reset Time of Day:">${timeOptions}</select>
-                    <div class="fieldDescription">This time applies to all daily, weekly, monthly, and yearly resets.</div>
+                    <div class="fieldDescription">All resets occur at this time of day.</div>
                 </div>
+                
                 <hr style="margin: 1.5em 0; border-color: #444;" />
-                <div class="inputContainer"><select is="emby-select" id="global_weekly-reset-day" label="Weekly Reset Day:">${weekDayOptions}</select></div>
-                <div class="inputContainer"><select is="emby-select" id="global_monthly-reset-day" label="Monthly Reset Day:">${monthDayOptions}</select></div>
-                <div style="display: flex; gap: 1em;">
-                    <div class="inputContainer" style="flex-grow:1;"><select is="emby-select" id="global_yearly-reset-month" label="Yearly Reset Month:">${monthOptions}</select></div>
-                    <div class="inputContainer" style="flex-grow:1;"><select is="emby-select" id="global_yearly-reset-day" label="Yearly Reset Day:">${yearDayOptions}</select></div>
+                
+                <div class="checkboxContainer" style="margin-bottom: 0.5em;">
+                    <label><input is="emby-checkbox" type="checkbox" id="global_enable-daily-reset" /><span>Daily Reset</span></label>
+                    <div class="fieldDescription">Daily counters reset every day at the specified time.</div>
                 </div>
+                
+                <div class="checkboxContainer" style="margin: 1.5em 0 0.5em 0;">
+                    <label><input is="emby-checkbox" type="checkbox" id="global_enable-weekly-reset" /><span>Weekly Reset</span></label>
+                </div>
+                <div class="inputContainer" style="margin-left: 2em;">
+                    <select is="emby-select" id="global_weekly-reset-day" label="Reset on:">${weekDayOptions}</select>
+                    <div class="fieldDescription">Weekly counters reset on this day of the week.</div>
+                </div>
+                
+                <div class="checkboxContainer" style="margin: 1.5em 0 0.5em 0;">
+                    <label><input is="emby-checkbox" type="checkbox" id="global_enable-monthly-reset" /><span>Monthly Reset</span></label>
+                </div>
+                <div class="inputContainer" style="margin-left: 2em;">
+                    <select is="emby-select" id="global_monthly-reset-day" label="Reset on day:">${monthDayOptions}</select>
+                    <div class="fieldDescription">Monthly counters reset on this day of each month.</div>
+                </div>
+                
+                <div class="checkboxContainer" style="margin: 1.5em 0 0.5em 0;">
+                    <label><input is="emby-checkbox" type="checkbox" id="global_enable-yearly-reset" /><span>Yearly Reset</span></label>
+                </div>
+                <div style="display: flex; gap: 1em; margin-left: 2em;">
+                    <div class="inputContainer" style="flex-grow:1;">
+                        <select is="emby-select" id="global_yearly-reset-month" label="Month:">${monthOptions}</select>
+                    </div>
+                    <div class="inputContainer" style="flex-grow:1;">
+                        <select is="emby-select" id="global_yearly-reset-day" label="Day:">${yearDayOptions}</select>
+                    </div>
+                </div>
+                <div class="fieldDescription" style="margin-left: 2em;">Yearly counters reset on this date each year.</div>
             </div>
 
             <!-- Time Window Tab -->
@@ -205,39 +242,84 @@
             buttonTarget.classList.add('is-active');
             container.querySelectorAll('.user-editor-tab-content').forEach(content => content.classList.toggle('hide', content.id !== tabId));
         });
+        
+        const weeklyResetCheckbox = container.querySelector('#global_enable-weekly-reset');
+        const weeklyResetDay = container.querySelector('#global_weekly-reset-day');
+        const monthlyResetCheckbox = container.querySelector('#global_enable-monthly-reset');
+        const monthlyResetDay = container.querySelector('#global_monthly-reset-day');
+        const yearlyResetCheckbox = container.querySelector('#global_enable-yearly-reset');
+        const yearlyResetMonth = container.querySelector('#global_yearly-reset-month');
+        const yearlyResetDay = container.querySelector('#global_yearly-reset-day');
+        
+        function updateResetControlStates() {
+            weeklyResetDay.disabled = !weeklyResetCheckbox.checked;
+            monthlyResetDay.disabled = !monthlyResetCheckbox.checked;
+            yearlyResetMonth.disabled = !yearlyResetCheckbox.checked;
+            yearlyResetDay.disabled = !yearlyResetCheckbox.checked;
+        }
+        
+        weeklyResetCheckbox.addEventListener('change', updateResetControlStates);
+        monthlyResetCheckbox.addEventListener('change', updateResetControlStates);
+        yearlyResetCheckbox.addEventListener('change', updateResetControlStates);
     }
 
     function populateGlobalEditor(view, config) {
-        view.querySelector('#global_enable-daily').checked = config.EnableDailyLimit;
-        view.querySelector('#global_daily-minutes').value = config.DailyLimitMinutes;
-        view.querySelector('#global_enable-weekly').checked = config.EnableWeeklyLimit;
-        view.querySelector('#global_weekly-hours').value = config.WeeklyLimitHours;
-        view.querySelector('#global_enable-monthly').checked = config.EnableMonthlyLimit;
-        view.querySelector('#global_monthly-hours').value = config.MonthlyLimitHours;
-        view.querySelector('#global_enable-yearly').checked = config.EnableYearlyLimit;
-        view.querySelector('#global_yearly-hours').value = config.YearlyLimitHours;
+        view.querySelector('#global_enable-daily').checked = config.EnableDailyLimit || false;
+        view.querySelector('#global_daily-minutes').value = config.DailyLimitMinutes || 180;
+        view.querySelector('#global_enable-weekly').checked = config.EnableWeeklyLimit || false;
+        view.querySelector('#global_weekly-hours').value = config.WeeklyLimitHours || 25;
+        view.querySelector('#global_enable-monthly').checked = config.EnableMonthlyLimit || false;
+        view.querySelector('#global_monthly-hours').value = config.MonthlyLimitHours || 80;
+        view.querySelector('#global_enable-yearly').checked = config.EnableYearlyLimit || false;
+        view.querySelector('#global_yearly-hours').value = config.YearlyLimitHours || 0;
 
-        view.querySelector('#global_reset-time').value = config.ResetTimeOfDayHours;
-        view.querySelector('#global_weekly-reset-day').value = config.WeeklyResetDay;
-        view.querySelector('#global_monthly-reset-day').value = config.MonthlyResetDay;
-        view.querySelector('#global_yearly-reset-month').value = config.YearlyResetMonth;
-        view.querySelector('#global_yearly-reset-day').value = config.YearlyResetDay;
+        view.querySelector('#global_reset-time').value = config.ResetTimeOfDayHours !== undefined ? config.ResetTimeOfDayHours : 3;
+        
+        view.querySelector('#global_enable-daily-reset').checked = config.EnableDailyReset !== undefined ? config.EnableDailyReset : true;
+        view.querySelector('#global_enable-weekly-reset').checked = config.EnableWeeklyReset || false;
+        view.querySelector('#global_enable-monthly-reset').checked = config.EnableMonthlyReset || false;
+        view.querySelector('#global_enable-yearly-reset').checked = config.EnableYearlyReset || false;
+        
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const weeklyDayIndex = typeof config.WeeklyResetDay === 'string' 
+            ? dayNames.indexOf(config.WeeklyResetDay) 
+            : (config.WeeklyResetDay !== undefined ? config.WeeklyResetDay : 0);
+        
+        view.querySelector('#global_weekly-reset-day').value = weeklyDayIndex >= 0 ? weeklyDayIndex : 0;
+        
+        view.querySelector('#global_monthly-reset-day').value = config.MonthlyResetDay || 1;
+        view.querySelector('#global_yearly-reset-month').value = config.YearlyResetMonth || 1;
+        view.querySelector('#global_yearly-reset-day').value = config.YearlyResetDay || 1;
+        
+        const weeklyResetCheckbox = view.querySelector('#global_enable-weekly-reset');
+        const monthlyResetCheckbox = view.querySelector('#global_enable-monthly-reset');
+        const yearlyResetCheckbox = view.querySelector('#global_enable-yearly-reset');
+        const weeklyResetDay = view.querySelector('#global_weekly-reset-day');
+        const monthlyResetDay = view.querySelector('#global_monthly-reset-day');
+        const yearlyResetMonth = view.querySelector('#global_yearly-reset-month');
+        const yearlyResetDay = view.querySelector('#global_yearly-reset-day');
+        
+        weeklyResetDay.disabled = !weeklyResetCheckbox.checked;
+        monthlyResetDay.disabled = !monthlyResetCheckbox.checked;
+        yearlyResetMonth.disabled = !yearlyResetCheckbox.checked;
+        yearlyResetDay.disabled = !yearlyResetCheckbox.checked;
 
-        view.querySelector('#global_enable-threshold-notifications').checked = config.EnableThresholdNotifications;
-        view.querySelector('#global_notification-thresholds').value = config.NotificationThresholds;
+        view.querySelector('#global_enable-threshold-notifications').checked = config.EnableThresholdNotifications || false;
+        view.querySelector('#global_notification-thresholds').value = config.NotificationThresholds || "80,95";
 
-        view.querySelector('#global_enable-time-windows').checked = config.EnableTimeWindows;
+        view.querySelector('#global_enable-time-windows').checked = config.EnableTimeWindows || false;
 
         if (!config.TimeWindows) config.TimeWindows = [];
-
+        
         view.querySelectorAll('#global_time-windows-container .day-window-row').forEach(row => {
             const dayIndex = parseInt(row.getAttribute('data-day'));
-            const dayRule = config.TimeWindows.find(w => w.Day === dayIndex);
+            const dayName = dayNames[dayIndex];
+            const dayRule = config.TimeWindows.find(w => w.Day === dayName);
 
             if (dayRule) {
-                row.querySelector('.edit-day-window-enabled-global').checked = dayRule.IsEnabled;
-                row.querySelector('.edit-day-window-start-global').value = dayRule.StartHour;
-                row.querySelector('.edit-day-window-end-global').value = dayRule.EndHour;
+                row.querySelector('.edit-day-window-enabled-global').checked = dayRule.IsEnabled || false;
+                row.querySelector('.edit-day-window-start-global').value = (dayRule.StartHour !== undefined && dayRule.StartHour !== null && !isNaN(dayRule.StartHour)) ? dayRule.StartHour : 7;
+                row.querySelector('.edit-day-window-end-global').value = (dayRule.EndHour !== undefined && dayRule.EndHour !== null && !isNaN(dayRule.EndHour)) ? dayRule.EndHour : 20;
             } else {
                 row.querySelector('.edit-day-window-enabled-global').checked = false;
                 row.querySelector('.edit-day-window-start-global').value = 7;
@@ -318,6 +400,9 @@
                 ApiClient.ajax({ type: "POST", url: ApiClient.getUrl("WatchingEye/ResetAllUsersTime") }).then(() => {
                     toast('Reset time for all users.');
                     this.renderLimitedUsers(this.view, this.config);
+                }).catch(err => {
+                    console.error('Error resetting all users time:', err);
+                    toast({ type: 'error', text: 'Error resetting time for all users.' });
                 });
             });
 
@@ -325,6 +410,9 @@
                 clearLogs().then(() => {
                     toast('Event log has been cleared.');
                     renderLogs(view);
+                }).catch(err => {
+                    console.error('Error clearing logs:', err);
+                    toast({ type: 'error', text: 'Error clearing event log.' });
                 });
             });
 
@@ -495,9 +583,9 @@
 
             const timeWindowText = `Plays between ${formatTime(restriction.StartTime || 0)} and ${formatTime(restriction.EndTime || 0)}`;
             const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-            const allowedDays = restriction.AllowedDays && restriction.AllowedDays.length < 7
-                ? restriction.AllowedDays.map(d => days[d]).join(', ')
-                : 'All Days';
+            const allowedDays = restriction.AllowedDays && restriction.AllowedDays.length > 0 && restriction.AllowedDays.length < 7
+                ? restriction.AllowedDays.filter(d => d >= 0 && d < 7).map(d => days[d]).join(', ')
+                : (restriction.AllowedDays && restriction.AllowedDays.length === 0 ? 'None' : 'All Days');
 
             return `
         <div class="listItem" style="display:flex; align-items: center; padding: 0.5em 0;">
@@ -570,10 +658,12 @@
 
             restriction.LibraryName = library.Name;
             restriction.IsEnabled = editorContainer.querySelector('.edit-lib-enabled').checked;
-            restriction.StartTime = parseFloat(editorContainer.querySelector('.edit-lib-start').value);
-            restriction.EndTime = parseFloat(editorContainer.querySelector('.edit-lib-end').value);
+            const startTime = parseFloat(editorContainer.querySelector('.edit-lib-start').value);
+            const endTime = parseFloat(editorContainer.querySelector('.edit-lib-end').value);
+            restriction.StartTime = isNaN(startTime) ? 8 : startTime;
+            restriction.EndTime = isNaN(endTime) ? 22 : endTime;
             restriction.BlockMessage = editorContainer.querySelector('.edit-lib-message').value;
-            restriction.AllowedDays = Array.from(editorContainer.querySelectorAll('.edit-lib-allowed-day:checked')).map(cb => parseInt(cb.getAttribute('data-day')));
+            restriction.AllowedDays = Array.from(editorContainer.querySelectorAll('.edit-lib-allowed-day:checked')).map(cb => parseInt(cb.getAttribute('data-day')) || 0);
 
             toast(`Settings for '${library.Name}' updated. Click the main Save button to apply.`);
             this.editingLibraryId = null;
@@ -604,8 +694,10 @@
                 const editor = container.querySelector(`.user-editor[data-libraryid="${this.editingLibraryId}"]`);
                 if (editor) {
                     const restriction = config.LibraryTimeRestrictions.find(r => r.LibraryId === this.editingLibraryId) || {};
-                    editor.querySelector('.edit-lib-start').value = restriction.StartTime === 0 ? 0 : restriction.StartTime || 8;
-                    editor.querySelector('.edit-lib-end').value = restriction.EndTime === 0 ? 0 : restriction.EndTime || 22;
+                    const startTime = restriction.StartTime !== undefined && restriction.StartTime !== null && !isNaN(restriction.StartTime) ? restriction.StartTime : 8;
+                    const endTime = restriction.EndTime !== undefined && restriction.EndTime !== null && !isNaN(restriction.EndTime) ? restriction.EndTime : 22;
+                    editor.querySelector('.edit-lib-start').value = startTime;
+                    editor.querySelector('.edit-lib-end').value = endTime;
 
                     const allowedDays = restriction.AllowedDays || [0, 1, 2, 3, 4, 5, 6];
                     allowedDays.forEach(day => {
@@ -655,10 +747,10 @@
             }
 
             let timeWindowText = '';
-            if (user.EnableTimeWindows && user.TimeWindows) {
+            if (user.EnableTimeWindows && user.TimeWindows && user.TimeWindows.length > 0) {
                 const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                 const activeWindows = user.TimeWindows
-                    .filter(w => w.IsEnabled)
+                    .filter(w => w.IsEnabled && w.Day >= 0 && w.Day < 7)
                     .map(w => `${days[w.Day]}: ${formatTime(w.StartHour)}-${formatTime(w.EndHour)}`)
                     .join('; ');
                 if (activeWindows) {
@@ -772,17 +864,48 @@
 
                 <!-- Reset Schedule Tab -->
                 <div id="tab-schedule" class="user-editor-tab-content hide">
+                    <div class="fieldDescription" style="margin-bottom: 1.5em;">Configure when watch time counters reset. Only enabled limits will reset on their respective schedules.</div>
+                    
                     <div class="inputContainer">
                         <select is="emby-select" class="edit-reset-time" label="Reset Time of Day:">${timeOptions}</select>
-                        <div class="fieldDescription">This time applies to all daily, weekly, monthly, and yearly resets.</div>
+                        <div class="fieldDescription">All resets occur at this time of day.</div>
                     </div>
+                    
                     <hr style="margin: 1.5em 0; border-color: #444;" />
-                    <div class="inputContainer"><select is="emby-select" class="edit-weekly-reset-day" label="Weekly Reset Day:">${weekDayOptions}</select></div>
-                    <div class="inputContainer"><select is="emby-select" class="edit-monthly-reset-day" label="Monthly Reset Day:">${monthDayOptions}</select></div>
-                    <div style="display: flex; gap: 1em;">
-                        <div class="inputContainer" style="flex-grow:1;"><select is="emby-select" class="edit-yearly-reset-month" label="Yearly Reset Month:">${monthOptions}</select></div>
-                        <div class="inputContainer" style="flex-grow:1;"><select is="emby-select" class="edit-yearly-reset-day" label="Yearly Reset Day:">${yearDayOptions}</select></div>
+                    
+                    <div class="checkboxContainer" style="margin-bottom: 0.5em;">
+                        <label><input is="emby-checkbox" type="checkbox" class="edit-enable-daily-reset" ${user.EnableDailyReset !== undefined ? (user.EnableDailyReset ? 'checked' : '') : 'checked'} /><span>Daily Reset</span></label>
+                        <div class="fieldDescription">Daily counters reset every day at the specified time.</div>
                     </div>
+                    
+                    <div class="checkboxContainer" style="margin: 1.5em 0 0.5em 0;">
+                        <label><input is="emby-checkbox" type="checkbox" class="edit-enable-weekly-reset" ${user.EnableWeeklyReset ? 'checked' : ''} /><span>Weekly Reset</span></label>
+                    </div>
+                    <div class="inputContainer" style="margin-left: 2em;">
+                        <select is="emby-select" class="edit-weekly-reset-day" label="Reset on:">${weekDayOptions}</select>
+                        <div class="fieldDescription">Weekly counters reset on this day of the week.</div>
+                    </div>
+                    
+                    <div class="checkboxContainer" style="margin: 1.5em 0 0.5em 0;">
+                        <label><input is="emby-checkbox" type="checkbox" class="edit-enable-monthly-reset" ${user.EnableMonthlyReset ? 'checked' : ''} /><span>Monthly Reset</span></label>
+                    </div>
+                    <div class="inputContainer" style="margin-left: 2em;">
+                        <select is="emby-select" class="edit-monthly-reset-day" label="Reset on day:">${monthDayOptions}</select>
+                        <div class="fieldDescription">Monthly counters reset on this day of each month.</div>
+                    </div>
+                    
+                    <div class="checkboxContainer" style="margin: 1.5em 0 0.5em 0;">
+                        <label><input is="emby-checkbox" type="checkbox" class="edit-enable-yearly-reset" ${user.EnableYearlyReset ? 'checked' : ''} /><span>Yearly Reset</span></label>
+                    </div>
+                    <div style="display: flex; gap: 1em; margin-left: 2em;">
+                        <div class="inputContainer" style="flex-grow:1;">
+                            <select is="emby-select" class="edit-yearly-reset-month" label="Month:">${monthOptions}</select>
+                        </div>
+                        <div class="inputContainer" style="flex-grow:1;">
+                            <select is="emby-select" class="edit-yearly-reset-day" label="Day:">${yearDayOptions}</select>
+                        </div>
+                    </div>
+                    <div class="fieldDescription" style="margin-left: 2em;">Yearly counters reset on this date each year.</div>
                 </div>
 
                 <!-- Time Window Tab -->
@@ -828,11 +951,18 @@
                 EnableYearlyLimit: editorContainer.querySelector('.edit-enable-yearly').checked,
                 YearlyLimitHours: parseInt(editorContainer.querySelector('.edit-yearly-hours').value) || 0,
 
-                ResetTimeOfDayHours: parseFloat(editorContainer.querySelector('.edit-reset-time').value),
-                WeeklyResetDay: parseInt(editorContainer.querySelector('.edit-weekly-reset-day').value),
-                MonthlyResetDay: parseInt(editorContainer.querySelector('.edit-monthly-reset-day').value),
-                YearlyResetMonth: parseInt(editorContainer.querySelector('.edit-yearly-reset-month').value),
-                YearlyResetDay: parseInt(editorContainer.querySelector('.edit-yearly-reset-day').value),
+                ResetTimeOfDayHours: parseFloat(editorContainer.querySelector('.edit-reset-time').value) || 3,
+                
+                EnableDailyReset: editorContainer.querySelector('.edit-enable-daily-reset').checked,
+                EnableWeeklyReset: editorContainer.querySelector('.edit-enable-weekly-reset').checked,
+                EnableMonthlyReset: editorContainer.querySelector('.edit-enable-monthly-reset').checked,
+                EnableYearlyReset: editorContainer.querySelector('.edit-enable-yearly-reset').checked,
+                
+                WeeklyResetDay: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][parseInt(editorContainer.querySelector('.edit-weekly-reset-day').value) || 0],
+                
+                MonthlyResetDay: parseInt(editorContainer.querySelector('.edit-monthly-reset-day').value) || 1,
+                YearlyResetMonth: parseInt(editorContainer.querySelector('.edit-yearly-reset-month').value) || 1,
+                YearlyResetDay: parseInt(editorContainer.querySelector('.edit-yearly-reset-day').value) || 1,
 
                 EnableThresholdNotifications: editorContainer.querySelector('.edit-enable-threshold-notifications').checked,
                 NotificationThresholds: editorContainer.querySelector('.edit-notification-thresholds').value,
@@ -841,12 +971,16 @@
                 TimeWindows: []
             };
 
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             editorContainer.querySelectorAll('.day-window-row').forEach(row => {
+                const dayIndex = parseInt(row.getAttribute('data-day')) || 0;
+                const startHour = parseFloat(row.querySelector('.edit-day-window-start').value);
+                const endHour = parseFloat(row.querySelector('.edit-day-window-end').value);
                 const dayRule = {
-                    Day: parseInt(row.getAttribute('data-day')),
+                    Day: dayNames[dayIndex],
                     IsEnabled: row.querySelector('.edit-day-window-enabled').checked,
-                    StartHour: parseFloat(row.querySelector('.edit-day-window-start').value),
-                    EndHour: parseFloat(row.querySelector('.edit-day-window-end').value)
+                    StartHour: isNaN(startHour) ? 7 : startHour,
+                    EndHour: isNaN(endHour) ? 20 : endHour
                 };
                 userData.TimeWindows.push(dayRule);
             });
@@ -888,7 +1022,22 @@
                 const usersToRender = [...config.LimitedUsers];
 
                 if (this.editingUserId === newUserId) {
-                    usersToRender.unshift({ UserId: newUserId, EnableDailyLimit: true, DailyLimitMinutes: 120, NotificationThresholds: '80,95', ResetTimeOfDayHours: 3, WeeklyResetDay: 0, MonthlyResetDay: 1, YearlyResetMonth: 1, YearlyResetDay: 1, TimeWindows: [] });
+                    usersToRender.unshift({ 
+                        UserId: newUserId, 
+                        EnableDailyLimit: true, 
+                        DailyLimitMinutes: 120, 
+                        NotificationThresholds: '80,95', 
+                        ResetTimeOfDayHours: 3, 
+                        EnableDailyReset: true,
+                        EnableWeeklyReset: false,
+                        WeeklyResetDay: 'Sunday',
+                        EnableMonthlyReset: false,
+                        MonthlyResetDay: 1, 
+                        EnableYearlyReset: false,
+                        YearlyResetMonth: 1, 
+                        YearlyResetDay: 1, 
+                        TimeWindows: [] 
+                    });
                 }
 
                 if (usersToRender.length === 0) {
@@ -911,10 +1060,40 @@
                         const user = config.LimitedUsers.find(u => u.UserId === this.editingUserId) || usersToRender[0];
 
                         editor.querySelector('.edit-reset-time').value = user.ResetTimeOfDayHours || 3;
-                        editor.querySelector('.edit-weekly-reset-day').value = user.WeeklyResetDay || 0;
+                        
+                        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                        const weeklyDayIndex = typeof user.WeeklyResetDay === 'string'
+                            ? dayNames.indexOf(user.WeeklyResetDay)
+                            : (user.WeeklyResetDay || 0);
+                        editor.querySelector('.edit-weekly-reset-day').value = weeklyDayIndex >= 0 ? weeklyDayIndex : 0;
+                        
                         editor.querySelector('.edit-monthly-reset-day').value = user.MonthlyResetDay || 1;
                         editor.querySelector('.edit-yearly-reset-month').value = user.YearlyResetMonth || 1;
                         editor.querySelector('.edit-yearly-reset-day').value = user.YearlyResetDay || 1;
+                        
+                        const weeklyResetCheckbox = editor.querySelector('.edit-enable-weekly-reset');
+                        const monthlyResetCheckbox = editor.querySelector('.edit-enable-monthly-reset');
+                        const yearlyResetCheckbox = editor.querySelector('.edit-enable-yearly-reset');
+                        const weeklyResetDay = editor.querySelector('.edit-weekly-reset-day');
+                        const monthlyResetDay = editor.querySelector('.edit-monthly-reset-day');
+                        const yearlyResetMonth = editor.querySelector('.edit-yearly-reset-month');
+                        const yearlyResetDay = editor.querySelector('.edit-yearly-reset-day');
+                        
+                        weeklyResetDay.disabled = !weeklyResetCheckbox.checked;
+                        monthlyResetDay.disabled = !monthlyResetCheckbox.checked;
+                        yearlyResetMonth.disabled = !yearlyResetCheckbox.checked;
+                        yearlyResetDay.disabled = !yearlyResetCheckbox.checked;
+                        
+                        function updateResetControlStates() {
+                            weeklyResetDay.disabled = !weeklyResetCheckbox.checked;
+                            monthlyResetDay.disabled = !monthlyResetCheckbox.checked;
+                            yearlyResetMonth.disabled = !yearlyResetCheckbox.checked;
+                            yearlyResetDay.disabled = !yearlyResetCheckbox.checked;
+                        }
+                        
+                        weeklyResetCheckbox.addEventListener('change', updateResetControlStates);
+                        monthlyResetCheckbox.addEventListener('change', updateResetControlStates);
+                        yearlyResetCheckbox.addEventListener('change', updateResetControlStates);
 
                         if (!user.TimeWindows) user.TimeWindows = [];
 
@@ -922,12 +1101,13 @@
                         if (timeWindowsContainer) {
                             editor.querySelectorAll('.day-window-row').forEach(row => {
                                 const dayIndex = parseInt(row.getAttribute('data-day'));
-                                const dayRule = user.TimeWindows.find(w => w.Day === dayIndex);
+                                const dayName = dayNames[dayIndex];
+                                const dayRule = user.TimeWindows.find(w => w.Day === dayName);
 
                                 if (dayRule) {
-                                    row.querySelector('.edit-day-window-enabled').checked = dayRule.IsEnabled;
-                                    row.querySelector('.edit-day-window-start').value = dayRule.StartHour;
-                                    row.querySelector('.edit-day-window-end').value = dayRule.EndHour;
+                                    row.querySelector('.edit-day-window-enabled').checked = dayRule.IsEnabled || false;
+                                    row.querySelector('.edit-day-window-start').value = (dayRule.StartHour !== undefined && dayRule.StartHour !== null && !isNaN(dayRule.StartHour)) ? dayRule.StartHour : 7;
+                                    row.querySelector('.edit-day-window-end').value = (dayRule.EndHour !== undefined && dayRule.EndHour !== null && !isNaN(dayRule.EndHour)) ? dayRule.EndHour : 20;
                                 } else {
                                     row.querySelector('.edit-day-window-enabled').checked = false;
                                     row.querySelector('.edit-day-window-start').value = 7;
@@ -943,6 +1123,15 @@
                         mainToggle.addEventListener('change', updateVisibility);
                         updateVisibility();
                     }
+                }
+            }).catch(err => {
+                console.error('Error getting limited users status:', err);
+                container.innerHTML = '<p style="color: #f44336;">Unable to retrieve user status information. Displaying basic user list.</p>';
+                if (config.LimitedUsers.length === 0) {
+                    container.innerHTML += '<p>No users have been added to the watch time limiter.</p>';
+                } else {
+                    const basicList = config.LimitedUsers.map(user => `<div class="listItem"><div class="listItemBody"><h3 class="listItemTitle">${user.Username}</h3></div></div>`).join('');
+                    container.innerHTML += basicList;
                 }
             });
         }
@@ -985,7 +1174,28 @@
                 this.allLibraries = virtualFolders.Items;
 
                 if (!this.config.GlobalLimitedUser) {
-                    this.config.GlobalLimitedUser = { TimeWindows: [] };
+                    this.config.GlobalLimitedUser = {
+                        UserId: "global_user_config",
+                        Username: "Global Settings",
+                        IsEnabled: true,
+                        EnableDailyLimit: false,
+                        DailyLimitMinutes: 180,
+                        EnableWeeklyLimit: false,
+                        WeeklyLimitHours: 25,
+                        EnableMonthlyLimit: false,
+                        MonthlyLimitHours: 80,
+                        EnableYearlyLimit: false,
+                        YearlyLimitHours: 0,
+                        ResetTimeOfDayHours: 3,
+                        WeeklyResetDay: 0,
+                        MonthlyResetDay: 1,
+                        YearlyResetMonth: 1,
+                        YearlyResetDay: 1,
+                        EnableThresholdNotifications: false,
+                        NotificationThresholds: "80,95",
+                        EnableTimeWindows: false,
+                        TimeWindows: []
+                    };
                 }
 
                 view.querySelectorAll('[data-config-key]').forEach(el => {
@@ -1050,6 +1260,19 @@
             });
 
             const globalConfig = this.config.GlobalLimitedUser;
+            if (!globalConfig) {
+                loading.hide();
+                toast({ type: 'error', text: 'Global configuration is not initialized.' });
+                return;
+            }
+            
+            const enableTimeWindowsCheckbox = view.querySelector('#global_enable-time-windows');
+            if (!enableTimeWindowsCheckbox) {
+                loading.hide();
+                toast({ type: 'error', text: 'Time windows UI element not found. Please refresh the page.' });
+                return;
+            }
+            
             globalConfig.EnableDailyLimit = view.querySelector('#global_enable-daily').checked;
             globalConfig.DailyLimitMinutes = parseInt(view.querySelector('#global_daily-minutes').value) || 0;
             globalConfig.EnableWeeklyLimit = view.querySelector('#global_enable-weekly').checked;
@@ -1058,21 +1281,34 @@
             globalConfig.MonthlyLimitHours = parseInt(view.querySelector('#global_monthly-hours').value) || 0;
             globalConfig.EnableYearlyLimit = view.querySelector('#global_enable-yearly').checked;
             globalConfig.YearlyLimitHours = parseInt(view.querySelector('#global_yearly-hours').value) || 0;
-            globalConfig.ResetTimeOfDayHours = parseFloat(view.querySelector('#global_reset-time').value);
-            globalConfig.WeeklyResetDay = parseInt(view.querySelector('#global_weekly-reset-day').value);
-            globalConfig.MonthlyResetDay = parseInt(view.querySelector('#global_monthly-reset-day').value);
-            globalConfig.YearlyResetMonth = parseInt(view.querySelector('#global_yearly-reset-month').value);
-            globalConfig.YearlyResetDay = parseInt(view.querySelector('#global_yearly-reset-day').value);
+            globalConfig.ResetTimeOfDayHours = parseFloat(view.querySelector('#global_reset-time').value) || 3;
+            
+            globalConfig.EnableDailyReset = view.querySelector('#global_enable-daily-reset').checked;
+            globalConfig.EnableWeeklyReset = view.querySelector('#global_enable-weekly-reset').checked;
+            globalConfig.EnableMonthlyReset = view.querySelector('#global_enable-monthly-reset').checked;
+            globalConfig.EnableYearlyReset = view.querySelector('#global_enable-yearly-reset').checked;
+            
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const weeklyDayIndex = parseInt(view.querySelector('#global_weekly-reset-day').value) || 0;
+            globalConfig.WeeklyResetDay = dayNames[weeklyDayIndex];
+            
+            globalConfig.MonthlyResetDay = parseInt(view.querySelector('#global_monthly-reset-day').value) || 1;
+            globalConfig.YearlyResetMonth = parseInt(view.querySelector('#global_yearly-reset-month').value) || 1;
+            globalConfig.YearlyResetDay = parseInt(view.querySelector('#global_yearly-reset-day').value) || 1;
             globalConfig.EnableThresholdNotifications = view.querySelector('#global_enable-threshold-notifications').checked;
             globalConfig.NotificationThresholds = view.querySelector('#global_notification-thresholds').value;
-            globalConfig.EnableTimeWindows = view.querySelector('#global_enable-time-windows').checked;
+            globalConfig.EnableTimeWindows = enableTimeWindowsCheckbox.checked;
             globalConfig.TimeWindows = [];
+            
             view.querySelectorAll('#global_time-windows-container .day-window-row').forEach(row => {
+                const dayIndex = parseInt(row.getAttribute('data-day')) || 0;
+                const startHour = parseFloat(row.querySelector('.edit-day-window-start-global').value);
+                const endHour = parseFloat(row.querySelector('.edit-day-window-end-global').value);
                 globalConfig.TimeWindows.push({
-                    Day: parseInt(row.getAttribute('data-day')),
+                    Day: dayNames[dayIndex],
                     IsEnabled: row.querySelector('.edit-day-window-enabled-global').checked,
-                    StartHour: parseFloat(row.querySelector('.edit-day-window-start-global').value),
-                    EndHour: parseFloat(row.querySelector('.edit-day-window-end-global').value)
+                    StartHour: isNaN(startHour) ? 7 : startHour,
+                    EndHour: isNaN(endHour) ? 20 : endHour
                 });
             });
 
