@@ -2,6 +2,10 @@
 
 Watching Eye is a comprehensive plugin for Emby Media Server that helps you monitor and manage viewership. It can notify users about media playback status, block unwanted transcodes, and allow administrators to set highly detailed watch time limits for specific users, complete with remote management via a standalone web page and a public API.
 
+[![Made for Emby](https://img.shields.io/badge/made%20for-emby-00a4dc.svg)](https://emby.media/)
+![License](https://img.shields.io/badge/license-MIT-green)
+[![BuyMeACoffee](https://img.shields.io/badge/support-buy%20me%20a%20coffee-yellow.svg)](https://buymeacoffee.com/yockser)
+
 <img width-="250" height="209" alt="WatchingEye" src="https://github.com/user-attachments/assets/e3f62249-8b7d-42eb-b5fb-f3f9eb426170" />
 
 ---
