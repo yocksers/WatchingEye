@@ -30,6 +30,7 @@ namespace WatchingEye
         private static readonly ConcurrentDictionary<string, bool> _notificationLoopActive = new();
         private static readonly ConcurrentDictionary<string, bool> _sessionsBeingBlocked = new();
         private static readonly ConcurrentDictionary<string, DateTime> _sessionPauseStartTime = new();
+        private static readonly ConcurrentDictionary<string, bool> _activeTranscodeSessions = new();
 
         public static void Start(ISessionManager sessionManager, ILogger logger, ILibraryManager libraryManager)
         {
@@ -63,6 +64,7 @@ namespace WatchingEye
             _directPlayNotificationsSent.Clear();
             _playbackStartNotificationsSent.Clear();
             _sessionPauseStartTime.Clear();
+            _activeTranscodeSessions.Clear();
 
             _isRunning = false;
         }
@@ -182,6 +184,7 @@ namespace WatchingEye
             {
                 var sessionId = session.Id;
                 _sessionPauseStartTime.TryRemove(sessionId, out _);
+                _activeTranscodeSessions.TryRemove(sessionId, out _);
 
                 var transcodeKeys = _transcodeNotificationsSent.Keys.Where(k => k.StartsWith($"{sessionId}_")).ToList();
                 foreach (var key in transcodeKeys)
@@ -340,6 +343,34 @@ namespace WatchingEye
             if (currentSession?.TranscodingInfo == null)
             {
                 return;
+            }
+
+            if (config.EnableConcurrentTranscodeLimit && config.MaxConcurrentTranscodes > 0)
+            {
+                _activeTranscodeSessions.TryAdd(currentSession.Id, true);
+                
+                var currentTranscodeCount = _activeTranscodeSessions.Count - 1;
+                
+                _logger?.Info($"[TranscodeMonitor] Concurrent transcode check: current count = {currentTranscodeCount}, limit = {config.MaxConcurrentTranscodes}, session = {currentSession.Id}");
+                
+                if (currentTranscodeCount >= config.MaxConcurrentTranscodes)
+                {
+                    _logger?.Info($"[TranscodeMonitor] Blocking transcode for user '{currentSession.UserName}' on client '{currentSession.Client}'. Server has reached the maximum concurrent transcode limit of {config.MaxConcurrentTranscodes}.");
+
+                    _activeTranscodeSessions.TryRemove(currentSession.Id, out _);
+
+                    var text = config.MessageTextConcurrentTranscodeLimit;
+                    if (string.IsNullOrWhiteSpace(text))
+                    {
+                        text = "The server has reached its maximum concurrent transcode limit. Please try again later.";
+                    }
+
+                    if (_sessionManager == null) return;
+                    _sessionsBeingBlocked.TryAdd(currentSession.Id, true);
+                    await InAppNotificationService.SendNotificationAsync(currentSession.Id, "Playback Blocked", text, config.EnableConfirmationButtonOnTranscodeBlock).ConfigureAwait(false);
+                    await _sessionManager.SendPlaystateCommand(null, currentSession.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
+                    return;
+                }
             }
 
             int actualHeight = 0;

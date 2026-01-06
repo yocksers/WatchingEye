@@ -109,6 +109,10 @@ namespace WatchingEye
         public int MaxTranscodingResolution { get; set; } = 2160;
         public string MessageTextResolutionBlocked { get; set; } = "Transcoding video with a resolution of {height}p is not permitted. The maximum allowed resolution is {max}p.";
 
+        public bool EnableConcurrentTranscodeLimit { get; set; } = false;
+        public int MaxConcurrentTranscodes { get; set; } = 5;
+        public string MessageTextConcurrentTranscodeLimit { get; set; } = "The server has reached its maximum concurrent transcode limit. Please try again later.";
+
         public bool NotifyOnDirectPlay { get; set; } = false;
         public string DirectPlayMessageText { get; set; } = "Direct Play active. Enjoy the best possible quality!";
 

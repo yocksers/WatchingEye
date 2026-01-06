@@ -275,7 +275,21 @@
                             <div class="fieldDescription">If enabled, the resolution block message will require manual dismissal.</div>
                         </div>
                     </div>
-
+                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
+                        <h2 style="margin-top: 0;">Concurrent Transcode Limit</h2>
+                        <div class="checkboxContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableConcurrentTranscodeLimit" data-config-key="EnableConcurrentTranscodeLimit" /><span>Enable Concurrent Transcode Limit</span></label>
+                            <div class="fieldDescription">If enabled, the server will limit the number of videos that can be transcoded simultaneously.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="numMaxConcurrentTranscodes" label="Maximum Concurrent Transcodes:" data-config-key="MaxConcurrentTranscodes" />
+                            <div class="fieldDescription">The maximum number of transcoding sessions allowed at the same time (e.g., 5).</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtMessageTextConcurrentTranscodeLimit" label="Concurrent Limit Message:" data-config-key="MessageTextConcurrentTranscodeLimit" />
+                            <div class="fieldDescription">Custom message shown when playback is blocked because the concurrent transcode limit has been reached.</div>
+                        </div>
+                    </div>
                     <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
                         <h2 style="margin-top: 0;">Direct Play Notification</h2>
                         <div class="checkboxContainer">
