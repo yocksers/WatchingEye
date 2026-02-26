@@ -26,8 +26,6 @@ namespace WatchingEye
         private readonly INotificationManager _notificationManager;
         private readonly ILibraryManager _libraryManager;
         public static Plugin? Instance { get; private set; }
-        private ExternalWebServer? _externalWebServer;
-        public static string ExternalWebServerStatus { get; private set; } = "Not Enabled";
 
         public override string Name => "Watching Eye";
         public override string Description => "A plugin to monitor and limit user watch time, with optional transcode notifications.";
@@ -45,21 +43,7 @@ namespace WatchingEye
             _libraryManager = libraryManager;
         }
 
-        public static bool UpdateUserLimits(string userId, int dailyMinutes, int weeklyHours, int monthlyHours)
-        {
-            if (Instance == null) return false;
 
-            var userToUpdate = Instance.Configuration.LimitedUsers.FirstOrDefault(u => u.UserId == userId);
-            if (userToUpdate == null) return false;
-
-            userToUpdate.DailyLimitMinutes = dailyMinutes;
-            userToUpdate.WeeklyLimitHours = weeklyHours;
-            userToUpdate.MonthlyLimitHours = monthlyHours;
-
-            Instance.UpdateConfiguration(Instance.Configuration);
-            Instance._logger.Info($"[ExternalWebServer] Updated limits for user {userToUpdate.Username}.");
-            return true;
-        }
 
         public override void UpdateConfiguration(BasePluginConfiguration configuration)
         {
@@ -94,16 +78,6 @@ namespace WatchingEye
             WatchTimeManager.Start(_sessionManager, _logger, _appPaths, _jsonSerializer);
             LogManager.Start(_logger, _jsonSerializer, _appPaths);
             ServerNotificationService.Start(_logger, _notificationManager);
-
-            if (Configuration.EnableExternalWebServer)
-            {
-                _externalWebServer = new ExternalWebServer(_logger, _jsonSerializer, Configuration.ExternalWebServerPort, Configuration.ExternalWebServerPassword);
-                ExternalWebServerStatus = _externalWebServer.Start();
-            }
-            else
-            {
-                ExternalWebServerStatus = "Not Enabled";
-            }
         }
 
         public void Dispose()
@@ -113,7 +87,6 @@ namespace WatchingEye
             LogManager.Stop();
             ServerNotificationService.Stop();
             InAppNotificationService.Stop();
-            _externalWebServer?.Stop();
         }
 
         public Stream GetThumbImage()

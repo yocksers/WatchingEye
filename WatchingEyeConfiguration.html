@@ -187,7 +187,7 @@
                 <a is="emby-linkbutton" class="nav-button ui-btn-active" href="#" data-role="button" data-target="limiterPage">Watch Time Limiter</a>
                 <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="libraryRestrictionsPage">Library Restrictions</a>
                 <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="loggingPage">Logging</a>
-                <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="remoteAccessPage">Remote Access & API</a>
+                <a is="emby-linkbutton" class="nav-button" href="#" data-role="button" data-target="remoteAccessPage">External API</a>
             </div>
 
             <form class="watchingEyeForm">
@@ -447,40 +447,6 @@
                 </div>
 
                 <div id="remoteAccessPage" class="hide">
-                    <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
-                        <h2 style="margin-top: 0;">External Standalone Web Page</h2>
-                        <div id="webServerStatusContainer"></div>
-                        <div class="checkboxContainer">
-                            <label><input is="emby-checkbox" type="checkbox" id="chkEnableExternalWebServer" data-config-key="EnableExternalWebServer" /><span>Enable External Web Server</span></label>
-                            <div class="fieldDescription">Hosts a simple, standalone web page on a different port for controlling the watch time limiter. Requires a server restart to enable or disable.</div>
-                        </div>
-
-                        <div class="netsh-command-box">
-                            <h3>Windows Setup Requirement</h3>
-                            <p>To use the external web server on Windows, you must run the following command in Command Prompt **as an Administrator**. This is a one-time setup to grant Emby permission to use the network port.</p>
-                            <code id="netshCommand">netsh http add urlacl url=http://*:9988/ user="Everyone"</code>
-                        </div>
-
-                        <div class="linux-info-box">
-                            <h3>Linux / Docker Setup</h3>
-                            <p>On Linux, "Access Denied" errors are less common but can occur if Emby is not run with sufficient permissions. For Docker users, you must map the port when creating your container. For example, add the following argument to your `docker run` command: <code>-p 9988:9988</code> (replacing 9988 with your chosen port).</p>
-                        </div>
-
-                        <div class="firewall-info-box">
-                            <h3>Firewall Configuration</h3>
-                            <p>To access this web page from other devices on your network, you may need to create an inbound rule in your firewall (e.g., Windows Defender Firewall, ufw) to allow connections on the specified TCP port.</p>
-                        </div>
-
-                        <div class="inputContainer">
-                            <input is="emby-input" type="number" id="numExternalWebServerPort" label="Web Server Port:" data-config-key="ExternalWebServerPort" />
-                            <div class="fieldDescription">The port for the external web server. You will access it at http://[Your-Emby-IP]:[Port]. Requires a server restart to change.</div>
-                        </div>
-                        <div class="inputContainer">
-                            <input is="emby-input" type="password" id="txtExternalWebServerPassword" label="Web Server Password:" data-config-key="ExternalWebServerPassword" />
-                            <div class="fieldDescription">A simple password required to access and use the external web page. Requires a server restart to take effect.</div>
-                        </div>
-                    </div>
-
                     <div class="paper-card" style="padding: 1.5em; margin-top: 2em;">
                         <h2 style="margin-top: 0;">External API Control</h2>
                         <div class="checkboxContainer">

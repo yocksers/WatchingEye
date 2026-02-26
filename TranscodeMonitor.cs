@@ -88,9 +88,16 @@ namespace WatchingEye
             var now = DateTime.UtcNow;
             var timeout = TimeSpan.FromMinutes(config.PausedStreamTimeoutMinutes);
 
+            var exclusionCache = new Dictionary<string, bool>();
             foreach (var session in sessions)
             {
-                if (IsSessionExcluded(session, config))
+                if (!exclusionCache.TryGetValue(session.Id, out var isExcluded))
+                {
+                    isExcluded = IsSessionExcluded(session, config);
+                    exclusionCache[session.Id] = isExcluded;
+                }
+
+                if (isExcluded)
                 {
                     _sessionPauseStartTime.TryRemove(session.Id, out _);
                     continue;
@@ -239,7 +246,7 @@ namespace WatchingEye
             }
         }
 
-        private static void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
+        private static async void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
         {
             try
             {
@@ -274,8 +281,8 @@ namespace WatchingEye
                                 _logger?.Info($"[TranscodeMonitor] Blocking playback for user '{session.UserName}' from library '{restriction.LibraryName}' due to time restriction.");
                                 if (_sessionManager != null)
                                 {
-                                    _ = InAppNotificationService.SendNotificationAsync(session.Id, "Playback Not Allowed", restriction.BlockMessage, false).ConfigureAwait(false);
-                                    _ = _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
+                                    await InAppNotificationService.SendNotificationAsync(session.Id, "Playback Not Allowed", restriction.BlockMessage, false).ConfigureAwait(false);
+                                    await _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
                                 }
                                 return;
                             }
@@ -288,7 +295,7 @@ namespace WatchingEye
                     var blockReason = WatchTimeManager.GetPlaybackBlockReason(session.UserId);
                     if (blockReason != PlaybackBlockReason.Allowed)
                     {
-                        _ = Task.Run(() => WatchTimeManager.StopPlaybackForUser(session.UserId, blockReason));
+                        await WatchTimeManager.StopPlaybackForUser(session.UserId, blockReason).ConfigureAwait(false);
                         return;
                     }
                 }

@@ -26,15 +26,22 @@ namespace WatchingEye
 
         private static bool _isRunning = false;
         private static readonly int TimerIntervalSeconds = 15;
+        private static readonly int DeferredSaveIntervalSeconds = 300;
 
         private static ConcurrentDictionary<string, UserWatchData> _userWatchData = new();
         private static readonly ConcurrentDictionary<string, DateTime> _sessionLastUpdate = new();
         private static readonly ConcurrentDictionary<string, bool> _limitReachedNotified = new();
 
+        private static bool _isDirty = false;
+        private static DateTime _lastSaveTime = DateTime.UtcNow;
+
         private static readonly ConcurrentDictionary<string, HashSet<int>> _dailyThresholdsNotified = new();
         private static readonly ConcurrentDictionary<string, HashSet<int>> _weeklyThresholdsNotified = new();
         private static readonly ConcurrentDictionary<string, HashSet<int>> _monthlyThresholdsNotified = new();
         private static readonly ConcurrentDictionary<string, HashSet<int>> _yearlyThresholdsNotified = new();
+
+        private static readonly ConcurrentDictionary<string, List<int>> _parsedThresholdsCache = new();
+        private static string _thresholdCacheConfigVersion = string.Empty;
 
         private static readonly object _saveLock = new object();
 
@@ -59,7 +66,7 @@ namespace WatchingEye
 
         public static void Stop()
         {
-            SaveWatchTimeData();
+            SaveWatchTimeDataImmediate();
             _updateTimer?.Dispose();
             _updateTimer = null;
             _isRunning = false;
@@ -136,14 +143,34 @@ namespace WatchingEye
                 {
                     if (user.UserConfig!.EnableTimeWindows && IsOutsideTimeWindow(user.UserConfig, DateTime.Now))
                     {
-                        StopPlaybackForUser(user.UserId, PlaybackBlockReason.OutsideTimeWindow).GetAwaiter().GetResult();
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await StopPlaybackForUser(user.UserId, PlaybackBlockReason.OutsideTimeWindow).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger?.ErrorException($"[WatchTimeManager] Error stopping playback for user {user.UserId} (time window).", ex);
+                            }
+                        });
                         continue;
                     }
 
                     var userData = _userWatchData.GetOrAdd(user.UserId, new UserWatchData { UserId = user.UserId });
                     if (userData.TimeOutUntil > nowUtc)
                     {
-                        StopPlaybackForUser(user.UserId, PlaybackBlockReason.TimedOut).GetAwaiter().GetResult();
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await StopPlaybackForUser(user.UserId, PlaybackBlockReason.TimedOut).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger?.ErrorException($"[WatchTimeManager] Error stopping playback for user {user.UserId} (timeout).", ex);
+                            }
+                        });
                         continue;
                     }
 
@@ -169,7 +196,17 @@ namespace WatchingEye
                     {
                         if (GetPlaybackBlockReason(user.UserId) == PlaybackBlockReason.TimeLimitExceeded)
                         {
-                            StopPlaybackForUser(user.UserId, PlaybackBlockReason.TimeLimitExceeded).GetAwaiter().GetResult();
+                            _ = Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    await StopPlaybackForUser(user.UserId, PlaybackBlockReason.TimeLimitExceeded).ConfigureAwait(false);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger?.ErrorException($"[WatchTimeManager] Error stopping playback for user {user.UserId} (limit exceeded).", ex);
+                                }
+                            });
                         }
                         else
                         {
@@ -181,7 +218,15 @@ namespace WatchingEye
 
                 if (dataChanged)
                 {
+                    _isDirty = true;
+                }
+
+                var timeSinceLastSave = nowUtc - _lastSaveTime;
+                if (_isDirty && timeSinceLastSave.TotalSeconds >= DeferredSaveIntervalSeconds)
+                {
                     SaveWatchTimeData();
+                    _isDirty = false;
+                    _lastSaveTime = nowUtc;
                 }
             }
             catch (Exception ex)
@@ -300,9 +345,23 @@ namespace WatchingEye
         {
             if (!userConfig.EnableThresholdNotifications || string.IsNullOrWhiteSpace(userConfig.NotificationThresholds)) return;
 
-            var thresholds = userConfig.NotificationThresholds.Split(',')
-                .Select(s => int.TryParse(s.Trim(), out var p) ? p : -1)
-                .Where(p => p > 0 && p < 100).ToList();
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return;
+
+            if (config.ConfigurationVersion != _thresholdCacheConfigVersion)
+            {
+                _parsedThresholdsCache.Clear();
+                _thresholdCacheConfigVersion = config.ConfigurationVersion;
+            }
+
+            var cacheKey = $"{userConfig.UserId}_{userConfig.NotificationThresholds}";
+            var thresholds = _parsedThresholdsCache.GetOrAdd(cacheKey, _ =>
+            {
+                return userConfig.NotificationThresholds.Split(',')
+                    .Select(s => int.TryParse(s.Trim(), out var p) ? p : -1)
+                    .Where(p => p > 0 && p < 100)
+                    .ToList();
+            });
 
             if (!thresholds.Any()) return;
 
@@ -331,7 +390,17 @@ namespace WatchingEye
                 if (percentageWatched >= threshold && !notifiedForUser.Contains(threshold))
                 {
                     var message = $"Watch Time Warning: You have used over {threshold}% of your {period} limit.";
-                    InAppNotificationService.SendNotificationAsync(session, "Watch Time Warning", message, false).GetAwaiter().GetResult();
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await InAppNotificationService.SendNotificationAsync(session, "Watch Time Warning", message, false).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.ErrorException("[WatchTimeManager] Error sending threshold notification.", ex);
+                        }
+                    });
                     notifiedForUser.Add(threshold);
 
                     var config = Plugin.Instance?.Configuration;
@@ -524,7 +593,7 @@ namespace WatchingEye
             userData.TimeCreditTicksYearly += timeCreditToAdd.Ticks;
 
             _limitReachedNotified.TryRemove(userId, out _);
-            SaveWatchTimeData();
+            SaveWatchTimeDataImmediate();
         }
 
         public static void TimeOutUser(string userId, int minutes)
@@ -532,9 +601,19 @@ namespace WatchingEye
             if (minutes <= 0) return;
             var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
             userData.TimeOutUntil = DateTime.UtcNow.AddMinutes(minutes);
-            SaveWatchTimeData();
+            SaveWatchTimeDataImmediate();
             _logger?.Info($"[WatchTimeManager] User {userId} has been timed out for {minutes} minutes.");
-            StopPlaybackForUser(userId, PlaybackBlockReason.TimedOut).GetAwaiter().GetResult();
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await StopPlaybackForUser(userId, PlaybackBlockReason.TimedOut).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.ErrorException($"[WatchTimeManager] Error stopping playback during timeout for user {userId}.", ex);
+                }
+            });
         }
 
         public static void ClearTimeOutForUser(string userId)
@@ -542,7 +621,7 @@ namespace WatchingEye
             if (_userWatchData.TryGetValue(userId, out var userData))
             {
                 userData.TimeOutUntil = DateTime.MinValue;
-                SaveWatchTimeData();
+                SaveWatchTimeDataImmediate();
                 _logger?.Info($"[WatchTimeManager] Cleared time-out for user {userId}.");
             }
         }
@@ -565,7 +644,7 @@ namespace WatchingEye
                 _weeklyThresholdsNotified.TryRemove(userId, out _);
                 _monthlyThresholdsNotified.TryRemove(userId, out _);
                 _yearlyThresholdsNotified.TryRemove(userId, out _);
-                SaveWatchTimeData();
+                SaveWatchTimeDataImmediate();
             }
         }
 
@@ -640,6 +719,13 @@ namespace WatchingEye
                     _logger?.ErrorException("[WatchTimeManager] Error saving watch time data.", ex);
                 }
             }
+        }
+
+        private static void SaveWatchTimeDataImmediate()
+        {
+            SaveWatchTimeData();
+            _isDirty = false;
+            _lastSaveTime = DateTime.UtcNow;
         }
     }
 }

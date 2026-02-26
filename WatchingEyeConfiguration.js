@@ -24,10 +24,6 @@
         return ApiClient.getJSON(ApiClient.getUrl("WatchingEye/GetLogEvents"));
     }
 
-    function getWebServerStatus() {
-        return ApiClient.getJSON(ApiClient.getUrl("WatchingEye/WebServerStatus"));
-    }
-
     function clearTimeOut(userId) {
         return ApiClient.ajax({
             type: "POST",
@@ -41,33 +37,7 @@
         return ApiClient.ajax({ type: "POST", url: ApiClient.getUrl("WatchingEye/ClearLogs") });
     }
 
-    function renderWebServerStatus(view) {
-        const container = view.querySelector('#webServerStatusContainer');
-        getWebServerStatus().then(response => {
-            const status = response.Status;
-            let html = '';
-            if (status.startsWith('Error:')) {
-                const commandMatch = status.match(/netsh http add urlacl url=http:\/\/\*:\d+\/ user="Everyone"/);
-                const command = commandMatch ? commandMatch[0] : 'See Emby server logs for the exact command.';
-                html = `
-                <div class="webserver-status-box webserver-status-box-error">
-                    <h3>Web Server Failed to Start</h3>
-                    <p>The external web server could not start due to an "Access Denied" error. This is a standard Windows security feature.</p>
-                    <p><strong>To fix this</strong>, you must run the following command in Command Prompt (cmd.exe) as an **Administrator**, and then restart the Emby server:</p>
-                    <code>${command}</code>
-                </div>`;
-            } else if (status.startsWith('Running')) {
-                html = `
-                 <div class="webserver-status-box webserver-status-box-success">
-                    <p><strong>External Web Server is running.</strong> You can access it at http://[Your-Emby-IP]:${view.querySelector('#numExternalWebServerPort').value}</p>
-                 </div>`;
-            }
-            container.innerHTML = html;
-        }).catch(err => {
-            console.error('Error getting web server status:', err);
-            container.innerHTML = '<p style="color: #f44336;">Unable to retrieve web server status. Please check server logs.</p>';
-        });
-    }
+
 
     function renderLogs(view) {
         const container = view.querySelector('#logContainer');
@@ -349,11 +319,6 @@
             this.allLibraries = [];
             this.editingLibraryId = null;
 
-            view.querySelector('#numExternalWebServerPort').addEventListener('input', (e) => {
-                const port = e.target.value || 9988;
-                view.querySelector('#netshCommand').textContent = `netsh http add urlacl url=http://*:${port}/ user="Everyone"`;
-            });
-
             view.querySelector('.watchingEyeForm').addEventListener('submit', (e) => {
                 e.preventDefault();
                 if (this.editingUserId) {
@@ -378,9 +343,6 @@
 
                     if (targetId === 'loggingPage') {
                         renderLogs(view);
-                    }
-                    if (targetId === 'remoteAccessPage' && this.config.EnableExternalWebServer) {
-                        renderWebServerStatus(this.view);
                     }
                 }
             });
@@ -1216,14 +1178,6 @@
                     globalEditor.classList.toggle('hide', !chkEnableGlobal.checked);
                 });
                 globalEditor.classList.toggle('hide', !chkEnableGlobal.checked);
-
-                const portInput = view.querySelector('#numExternalWebServerPort');
-                const port = portInput.value || 9988;
-                view.querySelector('#netshCommand').textContent = `netsh http add urlacl url=http://*:${port}/ user="Everyone"`;
-
-                if (config.EnableExternalWebServer) {
-                    renderWebServerStatus(view);
-                }
 
                 this.editingUserId = null;
                 this.editingLibraryId = null;

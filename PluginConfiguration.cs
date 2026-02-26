@@ -145,9 +145,6 @@ namespace WatchingEye
         public string TimeOutMessageText { get; set; } = "You have been placed in a temporary time-out. Playback is disabled for the next {duration}.";
         public string ApiKey { get; set; } = "";
         public bool EnablePublicApi { get; set; } = false;
-        public bool EnableExternalWebServer { get; set; } = false;
-        public int ExternalWebServerPort { get; set; } = 9988;
-        public string ExternalWebServerPassword { get; set; } = "";
         public List<LibraryTimeRestriction> LibraryTimeRestrictions { get; set; } = new List<LibraryTimeRestriction>();
 
         public bool EnableGlobalLimit { get; set; } = false;
