@@ -295,7 +295,15 @@ namespace WatchingEye
                     var blockReason = WatchTimeManager.GetPlaybackBlockReason(session.UserId);
                     if (blockReason != PlaybackBlockReason.Allowed)
                     {
-                        await WatchTimeManager.StopPlaybackForUser(session.UserId, blockReason).ConfigureAwait(false);
+                        _logger?.Info($"[TranscodeMonitor] Blocking playback for user '{session.UserName}' on client '{session.Client}' - {blockReason}.");
+                        _sessionsBeingBlocked.TryAdd(session.Id, true);
+                        
+                        if (_sessionManager != null)
+                        {
+                            await _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        
+                        await WatchTimeManager.SendBlockNotificationToUser(session.UserId, blockReason).ConfigureAwait(false);
                         return;
                     }
                 }

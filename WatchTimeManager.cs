@@ -141,38 +141,24 @@ namespace WatchingEye
 
                 foreach (var user in activeUsers)
                 {
-                    if (user.UserConfig!.EnableTimeWindows && IsOutsideTimeWindow(user.UserConfig, DateTime.Now))
+                    var blockReason = GetPlaybackBlockReason(user.UserId);
+                    if (blockReason != PlaybackBlockReason.Allowed)
                     {
                         _ = Task.Run(async () =>
                         {
                             try
                             {
-                                await StopPlaybackForUser(user.UserId, PlaybackBlockReason.OutsideTimeWindow).ConfigureAwait(false);
+                                await StopPlaybackForUser(user.UserId, blockReason).ConfigureAwait(false);
                             }
                             catch (Exception ex)
                             {
-                                _logger?.ErrorException($"[WatchTimeManager] Error stopping playback for user {user.UserId} (time window).", ex);
+                                _logger?.ErrorException($"[WatchTimeManager] Error stopping playback for user {user.UserId} ({blockReason}).", ex);
                             }
                         });
                         continue;
                     }
 
                     var userData = _userWatchData.GetOrAdd(user.UserId, new UserWatchData { UserId = user.UserId });
-                    if (userData.TimeOutUntil > nowUtc)
-                    {
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                await StopPlaybackForUser(user.UserId, PlaybackBlockReason.TimedOut).ConfigureAwait(false);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger?.ErrorException($"[WatchTimeManager] Error stopping playback for user {user.UserId} (timeout).", ex);
-                            }
-                        });
-                        continue;
-                    }
 
                     bool timeWasAdded = false;
                     foreach (var session in user.Sessions)
@@ -211,7 +197,7 @@ namespace WatchingEye
                         else
                         {
                             var representativeSession = user.Sessions.First();
-                            ProcessThresholdNotifications(representativeSession, user.UserConfig, userData);
+                            ProcessThresholdNotifications(representativeSession, user.UserConfig!, userData);
                         }
                     }
                 }
@@ -477,6 +463,71 @@ namespace WatchingEye
             }
 
             return string.Join(" and ", parts);
+        }
+
+        public static async Task SendBlockNotificationToUser(string userId, PlaybackBlockReason reason)
+        {
+            if (_sessionManager == null) return;
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return;
+
+            var allUserSessions = _sessionManager.Sessions.Where(s =>
+                string.Equals(s.UserId, userId, StringComparison.OrdinalIgnoreCase) && s.IsActive
+            ).ToList();
+
+            var username = allUserSessions.FirstOrDefault(s => !string.IsNullOrEmpty(s.UserName))?.UserName ?? "Unknown";
+
+            string message;
+            string header;
+            switch (reason)
+            {
+                case PlaybackBlockReason.TimeLimitExceeded:
+                    message = config.WatchTimeLimitMessageText;
+                    header = "Time Limit Reached";
+                    if (_limitReachedNotified.TryAdd(userId, true))
+                    {
+                        var clientNames = string.Join(", ", allUserSessions.Select(s => s.Client).Distinct());
+                        LogManager.LogLimitReached(userId, username, clientNames);
+
+                        if (config.EnableWatchLimitNotifications)
+                        {
+                            ServerNotificationService.SendLimitReachedNotification(username, clientNames);
+                        }
+                    }
+                    break;
+                case PlaybackBlockReason.OutsideTimeWindow:
+                    message = config.TimeWindowBlockedMessageText;
+                    header = "Playback Not Allowed";
+                    var userConfig = GetUserConfig(userId, config);
+                    if (userConfig != null)
+                    {
+                        var startTime = FormatTimeFromDouble(userConfig.TimeWindows.FirstOrDefault(d => d.Day == DateTime.Now.DayOfWeek)?.StartHour ?? 0);
+                        var endTime = FormatTimeFromDouble(userConfig.TimeWindows.FirstOrDefault(d => d.Day == DateTime.Now.DayOfWeek)?.EndHour ?? 0);
+                        message = message.Replace("{start_time}", startTime)
+                                         .Replace("{end_time}", endTime);
+                    }
+                    break;
+                case PlaybackBlockReason.TimedOut:
+                    header = "Playback Disabled";
+                    if (_userWatchData.TryGetValue(userId, out var userData))
+                    {
+                        var remaining = userData.TimeOutUntil - DateTime.UtcNow;
+                        var formattedDuration = FormatTimeSpan(remaining);
+                        message = config.TimeOutMessageText.Replace("{duration}", formattedDuration);
+                    }
+                    else
+                    {
+                        message = config.TimeOutMessageText.Replace(" for the next {duration}", string.Empty);
+                    }
+                    break;
+                default:
+                    return;
+            }
+
+            foreach (var session in allUserSessions)
+            {
+                await InAppNotificationService.SendNotificationAsync(session, header, message, config.EnableConfirmationButtonOnWatchTimeLimit);
+            }
         }
 
         public static async Task StopPlaybackForUser(string userId, PlaybackBlockReason reason)

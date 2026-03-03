@@ -89,6 +89,23 @@ namespace WatchingEye
             InAppNotificationService.Stop();
         }
 
+        public static bool UpdateUserLimits(string userId, int dailyLimitMinutes, int weeklyLimitHours, int monthlyLimitHours)
+        {
+            if (Instance == null || string.IsNullOrEmpty(userId)) return false;
+
+            var config = Instance.Configuration;
+            var user = config.LimitedUsers.FirstOrDefault(u => u.UserId.Equals(userId, StringComparison.OrdinalIgnoreCase));
+
+            if (user == null) return false;
+
+            user.DailyLimitMinutes = dailyLimitMinutes;
+            user.WeeklyLimitHours = weeklyLimitHours;
+            user.MonthlyLimitHours = monthlyLimitHours;
+
+            Instance.UpdateConfiguration(config);
+            return true;
+        }
+
         public Stream GetThumbImage()
         {
             var assembly = typeof(Plugin).GetTypeInfo().Assembly;
