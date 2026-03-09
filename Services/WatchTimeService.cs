@@ -51,6 +51,12 @@ namespace WatchingEye.Services
         public string UserId { get; set; } = string.Empty;
     }
 
+    [Route(ApiRoutes.DeleteUserData, "POST", Summary = "Deletes all stored watch time data for a user.")]
+    public class DeleteUserDataRequest : IReturnVoid
+    {
+        public string UserId { get; set; } = string.Empty;
+    }
+
     [Route(ApiRoutes.GetClientList, "GET", Summary = "Gets a list of unique client names from the logs.")]
     public class GetClientListRequest : IReturn<List<string>> { }
 
@@ -69,6 +75,11 @@ namespace WatchingEye.Services
         public double SecondsWatchedWeekly { get; set; }
         public double SecondsWatchedMonthly { get; set; }
         public double SecondsWatchedYearly { get; set; }
+
+        public double CreditSecondsDaily { get; set; }
+        public double CreditSecondsWeekly { get; set; }
+        public double CreditSecondsMonthly { get; set; }
+        public double CreditSecondsYearly { get; set; }
 
         public DateTime TimeOutUntil { get; set; }
     }
@@ -117,6 +128,14 @@ namespace WatchingEye.Services
             if (!string.IsNullOrEmpty(request.UserId))
             {
                 WatchTimeManager.ClearTimeOutForUser(request.UserId);
+            }
+        }
+
+        public void Post(DeleteUserDataRequest request)
+        {
+            if (!string.IsNullOrEmpty(request.UserId))
+            {
+                WatchTimeManager.DeleteUserData(request.UserId);
             }
         }
 

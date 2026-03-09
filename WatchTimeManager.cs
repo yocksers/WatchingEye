@@ -29,12 +29,12 @@ namespace WatchingEye
         private static readonly int DeferredSaveIntervalSeconds = 300;
 
         private static ConcurrentDictionary<string, UserWatchData> _userWatchData = new();
-        private static readonly ConcurrentDictionary<string, DateTime> _sessionLastUpdate = new();
-        private static readonly ConcurrentDictionary<string, bool> _limitReachedNotified = new();
+        private static DateTime _lastTimerFire = DateTime.UtcNow;
 
         private static bool _isDirty = false;
         private static DateTime _lastSaveTime = DateTime.UtcNow;
 
+        private static readonly ConcurrentDictionary<string, bool> _limitServerNotified = new();
         private static readonly ConcurrentDictionary<string, HashSet<int>> _dailyThresholdsNotified = new();
         private static readonly ConcurrentDictionary<string, HashSet<int>> _weeklyThresholdsNotified = new();
         private static readonly ConcurrentDictionary<string, HashSet<int>> _monthlyThresholdsNotified = new();
@@ -44,7 +44,6 @@ namespace WatchingEye
         private static string _thresholdCacheConfigVersion = string.Empty;
 
         private static readonly object _saveLock = new object();
-
 
         public static void Start(ISessionManager sessionManager, ILogger logger, IApplicationPaths appPaths, IJsonSerializer jsonSerializer)
         {
@@ -57,6 +56,7 @@ namespace WatchingEye
 
             LoadWatchTimeData();
 
+            _lastTimerFire = DateTime.UtcNow;
             var interval = TimeSpan.FromSeconds(TimerIntervalSeconds);
             _updateTimer = new Timer(OnTimerElapsed, null, interval, interval);
 
@@ -75,7 +75,6 @@ namespace WatchingEye
 
         public static void OnSessionStopped(string sessionId)
         {
-            _sessionLastUpdate.TryRemove(sessionId, out _);
         }
 
         private static LimitedUser? GetUserConfig(string userId, PluginConfiguration config)
@@ -86,14 +85,10 @@ namespace WatchingEye
 
             var specificUser = config.LimitedUsers.FirstOrDefault(u => u.UserId.Equals(userId, StringComparison.OrdinalIgnoreCase));
             if (specificUser != null)
-            {
                 return specificUser.IsEnabled ? specificUser : null;
-            }
 
             if (config.EnableGlobalLimit)
-            {
                 return config.GlobalLimitedUser;
-            }
 
             return null;
         }
@@ -102,113 +97,79 @@ namespace WatchingEye
         {
             try
             {
+                var nowUtc = DateTime.UtcNow;
+                var elapsed = nowUtc - _lastTimerFire;
+                _lastTimerFire = nowUtc;
+
+                var maxElapsed = TimeSpan.FromSeconds(TimerIntervalSeconds * 2);
+                if (elapsed > maxElapsed) elapsed = maxElapsed;
+
                 var config = Plugin.Instance?.Configuration;
                 if (config == null || _sessionManager == null || _logger == null) return;
 
                 if (!config.EnableWatchTimeLimiter)
-                {
-                    if (!_userWatchData.IsEmpty) ResetAllWatchTimes();
                     return;
-                }
 
                 bool dataChanged = false;
-                var nowUtc = DateTime.UtcNow;
 
                 foreach (var userId in _userWatchData.Keys)
                 {
                     var userConfig = GetUserConfig(userId, config);
                     if (userConfig != null)
-                    {
                         dataChanged |= ProcessResetsForUser(userId, userConfig, nowUtc);
-                    }
                 }
 
-                var activeSessions = _sessionManager.Sessions.Where(s =>
-                    !string.IsNullOrEmpty(s.UserId) &&
-                    s.NowPlayingItem != null &&
-                    s.PlayState is { IsPaused: false }
-                ).ToList();
+                var activeUserIds = _sessionManager.Sessions
+                    .Where(s => !string.IsNullOrEmpty(s.UserId) && s.NowPlayingItem != null && s.PlayState is { IsPaused: false })
+                    .Select(s => s.UserId)
+                    .Distinct()
+                    .ToList();
 
-                var activeUsers = activeSessions
-                    .GroupBy(s => s.UserId)
-                    .Select(g => new
-                    {
-                        UserId = g.Key,
-                        UserConfig = GetUserConfig(g.Key, config),
-                        Sessions = g.ToList()
-                    })
-                    .Where(u => u.UserConfig != null);
-
-                foreach (var user in activeUsers)
+                foreach (var userId in activeUserIds)
                 {
-                    var blockReason = GetPlaybackBlockReason(user.UserId);
+                    var userConfig = GetUserConfig(userId, config);
+                    if (userConfig == null) continue;
+
+                    var blockReason = GetPlaybackBlockReason(userId);
                     if (blockReason != PlaybackBlockReason.Allowed)
                     {
                         _ = Task.Run(async () =>
                         {
-                            try
-                            {
-                                await StopPlaybackForUser(user.UserId, blockReason).ConfigureAwait(false);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger?.ErrorException($"[WatchTimeManager] Error stopping playback for user {user.UserId} ({blockReason}).", ex);
-                            }
+                            try { await StopPlaybackForUser(userId, blockReason).ConfigureAwait(false); }
+                            catch (Exception ex) { _logger?.ErrorException($"[WatchTimeManager] Error stopping playback for user {userId}.", ex); }
                         });
                         continue;
                     }
 
-                    var userData = _userWatchData.GetOrAdd(user.UserId, new UserWatchData { UserId = user.UserId });
+                    var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
+                    var ticksToAdd = elapsed.Ticks;
 
-                    bool timeWasAdded = false;
-                    foreach (var session in user.Sessions)
+                    userData.WatchedTimeTicksDaily += ticksToAdd;
+                    userData.WatchedTimeTicksWeekly += ticksToAdd;
+                    userData.WatchedTimeTicksMonthly += ticksToAdd;
+                    userData.WatchedTimeTicksYearly += ticksToAdd;
+                    dataChanged = true;
+
+                    if (GetPlaybackBlockReason(userId) == PlaybackBlockReason.TimeLimitExceeded)
                     {
-                        var lastUpdate = _sessionLastUpdate.GetOrAdd(session.Id, nowUtc);
-                        var timeToAdd = nowUtc - lastUpdate;
-
-                        if (timeToAdd > TimeSpan.Zero)
+                        _ = Task.Run(async () =>
                         {
-                            userData.WatchedTimeTicksDaily += timeToAdd.Ticks;
-                            userData.WatchedTimeTicksWeekly += timeToAdd.Ticks;
-                            userData.WatchedTimeTicksMonthly += timeToAdd.Ticks;
-                            userData.WatchedTimeTicksYearly += timeToAdd.Ticks;
-                            dataChanged = true;
-                            timeWasAdded = true;
-                        }
-                        _sessionLastUpdate.AddOrUpdate(session.Id, nowUtc, (k, v) => nowUtc);
+                            try { await StopPlaybackForUser(userId, PlaybackBlockReason.TimeLimitExceeded).ConfigureAwait(false); }
+                            catch (Exception ex) { _logger?.ErrorException($"[WatchTimeManager] Error stopping playback for user {userId} (limit exceeded).", ex); }
+                        });
                     }
-
-                    if (timeWasAdded)
+                    else
                     {
-                        if (GetPlaybackBlockReason(user.UserId) == PlaybackBlockReason.TimeLimitExceeded)
-                        {
-                            _ = Task.Run(async () =>
-                            {
-                                try
-                                {
-                                    await StopPlaybackForUser(user.UserId, PlaybackBlockReason.TimeLimitExceeded).ConfigureAwait(false);
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger?.ErrorException($"[WatchTimeManager] Error stopping playback for user {user.UserId} (limit exceeded).", ex);
-                                }
-                            });
-                        }
-                        else
-                        {
-                            var representativeSession = user.Sessions.First();
-                            ProcessThresholdNotifications(representativeSession, user.UserConfig!, userData);
-                        }
+                        var session = _sessionManager.Sessions
+                            .FirstOrDefault(s => string.Equals(s.UserId, userId, StringComparison.OrdinalIgnoreCase) && s.NowPlayingItem != null);
+                        if (session != null)
+                            ProcessThresholdNotifications(session, userConfig, userData);
                     }
                 }
 
-                if (dataChanged)
-                {
-                    _isDirty = true;
-                }
+                if (dataChanged) _isDirty = true;
 
-                var timeSinceLastSave = nowUtc - _lastSaveTime;
-                if (_isDirty && timeSinceLastSave.TotalSeconds >= DeferredSaveIntervalSeconds)
+                if (_isDirty && (nowUtc - _lastSaveTime).TotalSeconds >= DeferredSaveIntervalSeconds)
                 {
                     SaveWatchTimeData();
                     _isDirty = false;
@@ -224,9 +185,7 @@ namespace WatchingEye
         private static bool ProcessResetsForUser(string userId, LimitedUser userConfig, DateTime nowUtc)
         {
             var dataChanged = false;
-            var needsOverallReset = false;
             var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
-
             var localNow = nowUtc.ToLocalTime();
 
             if (userData.LastDailyReset == DateTime.MinValue) userData.LastDailyReset = nowUtc;
@@ -234,97 +193,157 @@ namespace WatchingEye
             if (userData.LastMonthlyReset == DateTime.MinValue) userData.LastMonthlyReset = nowUtc;
             if (userData.LastYearlyReset == DateTime.MinValue) userData.LastYearlyReset = nowUtc;
 
-            DateTime lastDailyTriggerLocal = localNow.Date.AddHours(userConfig.ResetTimeOfDayHours);
-            if (localNow < lastDailyTriggerLocal) lastDailyTriggerLocal = lastDailyTriggerLocal.AddDays(-1);
-            if (nowUtc >= lastDailyTriggerLocal.ToUniversalTime() && userData.LastDailyReset < lastDailyTriggerLocal.ToUniversalTime())
+            if (userConfig.EnableDailyReset)
             {
-                userData.WatchedTimeTicksDaily = 0;
-                userData.TimeCreditTicksDaily = 0;
-                userData.LastDailyReset = nowUtc;
-                _dailyThresholdsNotified.TryRemove(userConfig.UserId, out _);
-                needsOverallReset = true;
-            }
-
-            int daysSinceResetDay = (int)localNow.DayOfWeek - (int)userConfig.WeeklyResetDay;
-            if (daysSinceResetDay < 0) daysSinceResetDay += 7;
-            DateTime lastWeeklyTriggerLocal = localNow.Date.AddDays(-daysSinceResetDay).AddHours(userConfig.ResetTimeOfDayHours);
-            if (nowUtc >= lastWeeklyTriggerLocal.ToUniversalTime() && userData.LastWeeklyReset < lastWeeklyTriggerLocal.ToUniversalTime())
-            {
-                userData.WatchedTimeTicksWeekly = 0;
-                userData.TimeCreditTicksWeekly = 0;
-                userData.LastWeeklyReset = nowUtc;
-                _weeklyThresholdsNotified.TryRemove(userConfig.UserId, out _);
-                needsOverallReset = true;
-            }
-
-            try
-            {
-                int resetDay = Math.Min(userConfig.MonthlyResetDay, DateTime.DaysInMonth(localNow.Year, localNow.Month));
-                DateTime lastMonthlyTriggerLocal = new DateTime(localNow.Year, localNow.Month, resetDay).AddHours(userConfig.ResetTimeOfDayHours);
-                if (localNow < lastMonthlyTriggerLocal)
+                var trigger = GetLastDailyResetTrigger(localNow, userConfig.ResetTimeOfDayHours);
+                if (nowUtc >= trigger && userData.LastDailyReset < trigger)
                 {
-                    var prevMonth = localNow.AddMonths(-1);
-                    resetDay = Math.Min(userConfig.MonthlyResetDay, DateTime.DaysInMonth(prevMonth.Year, prevMonth.Month));
-                    lastMonthlyTriggerLocal = new DateTime(prevMonth.Year, prevMonth.Month, resetDay).AddHours(userConfig.ResetTimeOfDayHours);
-                }
-                if (nowUtc >= lastMonthlyTriggerLocal.ToUniversalTime() && userData.LastMonthlyReset < lastMonthlyTriggerLocal.ToUniversalTime())
-                {
-                    userData.WatchedTimeTicksMonthly = 0;
-                    userData.TimeCreditTicksMonthly = 0;
-                    userData.LastMonthlyReset = nowUtc;
-                    _monthlyThresholdsNotified.TryRemove(userConfig.UserId, out _);
-                    needsOverallReset = true;
+                    userData.WatchedTimeTicksDaily = 0;
+                    userData.TimeCreditTicksDaily = 0;
+                    userData.LastDailyReset = nowUtc;
+                    _dailyThresholdsNotified.TryRemove(userId, out _);
+                    _limitServerNotified.TryRemove(userId, out _);
+                    dataChanged = true;
+                    _logger?.Info($"[WatchTimeManager] Daily reset for user {userConfig.Username}.");
                 }
             }
-            catch (Exception ex) { _logger?.ErrorException("Error calculating monthly reset for user {0}", ex, userConfig.Username); }
 
-
-            try
+            if (userConfig.EnableWeeklyReset)
             {
-                DateTime lastYearlyTriggerLocal = new DateTime(localNow.Year, userConfig.YearlyResetMonth, userConfig.YearlyResetDay).AddHours(userConfig.ResetTimeOfDayHours);
-                if (localNow < lastYearlyTriggerLocal) lastYearlyTriggerLocal = lastYearlyTriggerLocal.AddYears(-1);
-                if (nowUtc >= lastYearlyTriggerLocal.ToUniversalTime() && userData.LastYearlyReset < lastYearlyTriggerLocal.ToUniversalTime())
+                var trigger = GetLastWeeklyResetTrigger(localNow, userConfig.WeeklyResetDay, userConfig.ResetTimeOfDayHours);
+                if (nowUtc >= trigger && userData.LastWeeklyReset < trigger)
                 {
-                    userData.WatchedTimeTicksYearly = 0;
-                    userData.TimeCreditTicksYearly = 0;
-                    userData.LastYearlyReset = nowUtc;
-                    _yearlyThresholdsNotified.TryRemove(userConfig.UserId, out _);
-                    needsOverallReset = true;
+                    userData.WatchedTimeTicksWeekly = 0;
+                    userData.TimeCreditTicksWeekly = 0;
+                    userData.LastWeeklyReset = nowUtc;
+                    _weeklyThresholdsNotified.TryRemove(userId, out _);
+                    _limitServerNotified.TryRemove(userId, out _);
+                    dataChanged = true;
+                    _logger?.Info($"[WatchTimeManager] Weekly reset for user {userConfig.Username}.");
                 }
             }
-            catch (Exception ex) { _logger?.ErrorException("Error calculating yearly reset for user {0}", ex, userConfig.Username); }
 
-
-            if (needsOverallReset)
+            if (userConfig.EnableMonthlyReset)
             {
-                _limitReachedNotified.TryRemove(userConfig.UserId, out _);
-                dataChanged = true;
-                _logger?.Info($"[WatchTimeManager] Performed one or more scheduled resets for user {userConfig.Username}.");
+                try
+                {
+                    var trigger = GetLastMonthlyResetTrigger(localNow, userConfig.MonthlyResetDay, userConfig.ResetTimeOfDayHours);
+                    if (nowUtc >= trigger && userData.LastMonthlyReset < trigger)
+                    {
+                        userData.WatchedTimeTicksMonthly = 0;
+                        userData.TimeCreditTicksMonthly = 0;
+                        userData.LastMonthlyReset = nowUtc;
+                        _monthlyThresholdsNotified.TryRemove(userId, out _);
+                        _limitServerNotified.TryRemove(userId, out _);
+                        dataChanged = true;
+                        _logger?.Info($"[WatchTimeManager] Monthly reset for user {userConfig.Username}.");
+                    }
+                }
+                catch (Exception ex) { _logger?.ErrorException($"Error calculating monthly reset for user {userConfig.Username}", ex); }
             }
+
+            if (userConfig.EnableYearlyReset)
+            {
+                try
+                {
+                    var trigger = GetLastYearlyResetTrigger(localNow, userConfig.YearlyResetMonth, userConfig.YearlyResetDay, userConfig.ResetTimeOfDayHours);
+                    if (nowUtc >= trigger && userData.LastYearlyReset < trigger)
+                    {
+                        userData.WatchedTimeTicksYearly = 0;
+                        userData.TimeCreditTicksYearly = 0;
+                        userData.LastYearlyReset = nowUtc;
+                        _yearlyThresholdsNotified.TryRemove(userId, out _);
+                        _limitServerNotified.TryRemove(userId, out _);
+                        dataChanged = true;
+                        _logger?.Info($"[WatchTimeManager] Yearly reset for user {userConfig.Username}.");
+                    }
+                }
+                catch (Exception ex) { _logger?.ErrorException($"Error calculating yearly reset for user {userConfig.Username}", ex); }
+            }
+
             return dataChanged;
         }
 
-        private static bool IsOutsideTimeWindow(LimitedUser userConfig, DateTime now)
+        private static DateTime GetLastDailyResetTrigger(DateTime localNow, double resetHour)
         {
-            var ruleForToday = userConfig.TimeWindows?.FirstOrDefault(w => w.Day == now.DayOfWeek);
+            var trigger = localNow.Date.AddHours(resetHour);
+            if (localNow < trigger) trigger = trigger.AddDays(-1);
+            return trigger.ToUniversalTime();
+        }
 
-            if (ruleForToday == null || !ruleForToday.IsEnabled)
+        private static DateTime GetLastWeeklyResetTrigger(DateTime localNow, DayOfWeek resetDay, double resetHour)
+        {
+            int daysBack = ((int)localNow.DayOfWeek - (int)resetDay + 7) % 7;
+            var trigger = localNow.Date.AddDays(-daysBack).AddHours(resetHour);
+            return trigger.ToUniversalTime();
+        }
+
+        private static DateTime GetLastMonthlyResetTrigger(DateTime localNow, int resetDay, double resetHour)
+        {
+            int clampedDay = Math.Min(resetDay, DateTime.DaysInMonth(localNow.Year, localNow.Month));
+            var trigger = new DateTime(localNow.Year, localNow.Month, clampedDay, 0, 0, 0, DateTimeKind.Local).AddHours(resetHour);
+            if (localNow < trigger)
             {
-                return true;
+                var prev = localNow.AddMonths(-1);
+                clampedDay = Math.Min(resetDay, DateTime.DaysInMonth(prev.Year, prev.Month));
+                trigger = new DateTime(prev.Year, prev.Month, clampedDay, 0, 0, 0, DateTimeKind.Local).AddHours(resetHour);
             }
+            return trigger.ToUniversalTime();
+        }
 
-            var startHour = ruleForToday.StartHour;
-            var endHour = ruleForToday.EndHour;
-            var currentHour = now.TimeOfDay.TotalHours;
+        private static DateTime GetLastYearlyResetTrigger(DateTime localNow, int resetMonth, int resetDay, double resetHour)
+        {
+            var trigger = new DateTime(localNow.Year, resetMonth, resetDay, 0, 0, 0, DateTimeKind.Local).AddHours(resetHour);
+            if (localNow < trigger) trigger = trigger.AddYears(-1);
+            return trigger.ToUniversalTime();
+        }
 
-            if (startHour >= endHour)
-            {
-                return currentHour >= endHour && currentHour < startHour;
-            }
+        private static bool IsOutsideTimeWindow(LimitedUser userConfig, DateTime localNow)
+        {
+            var rule = userConfig.TimeWindows?.FirstOrDefault(w => w.Day == localNow.DayOfWeek);
+            if (rule == null || !rule.IsEnabled) return true;
+
+            var current = localNow.TimeOfDay.TotalHours;
+            if (rule.StartHour >= rule.EndHour)
+                return current >= rule.EndHour && current < rule.StartHour;
             else
-            {
-                return currentHour < startHour || currentHour >= endHour;
-            }
+                return current < rule.StartHour || current >= rule.EndHour;
+        }
+
+        public static PlaybackBlockReason GetPlaybackBlockReason(string userId)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null || !config.EnableWatchTimeLimiter || string.IsNullOrEmpty(userId))
+                return PlaybackBlockReason.Allowed;
+
+            var userConfig = GetUserConfig(userId, config);
+            if (userConfig == null) return PlaybackBlockReason.Allowed;
+
+            var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
+
+            if (userData.TimeOutUntil > DateTime.UtcNow)
+                return PlaybackBlockReason.TimedOut;
+
+            if (userConfig.EnableTimeWindows && IsOutsideTimeWindow(userConfig, DateTime.Now))
+                return PlaybackBlockReason.OutsideTimeWindow;
+
+            if (userConfig.EnableDailyLimit && userConfig.DailyLimitMinutes > 0 &&
+                userData.WatchedTimeTicksDaily >= TimeSpan.FromMinutes(userConfig.DailyLimitMinutes).Ticks + userData.TimeCreditTicksDaily)
+                return PlaybackBlockReason.TimeLimitExceeded;
+
+            if (userConfig.EnableWeeklyLimit && userConfig.WeeklyLimitHours > 0 &&
+                userData.WatchedTimeTicksWeekly >= TimeSpan.FromHours(userConfig.WeeklyLimitHours).Ticks + userData.TimeCreditTicksWeekly)
+                return PlaybackBlockReason.TimeLimitExceeded;
+
+            if (userConfig.EnableMonthlyLimit && userConfig.MonthlyLimitHours > 0 &&
+                userData.WatchedTimeTicksMonthly >= TimeSpan.FromHours(userConfig.MonthlyLimitHours).Ticks + userData.TimeCreditTicksMonthly)
+                return PlaybackBlockReason.TimeLimitExceeded;
+
+            if (userConfig.EnableYearlyLimit && userConfig.YearlyLimitHours > 0 &&
+                userData.WatchedTimeTicksYearly >= TimeSpan.FromHours(userConfig.YearlyLimitHours).Ticks + userData.TimeCreditTicksYearly)
+                return PlaybackBlockReason.TimeLimitExceeded;
+
+            return PlaybackBlockReason.Allowed;
         }
 
         private static void ProcessThresholdNotifications(SessionInfo session, LimitedUser userConfig, UserWatchData userData)
@@ -342,191 +361,101 @@ namespace WatchingEye
 
             var cacheKey = $"{userConfig.UserId}_{userConfig.NotificationThresholds}";
             var thresholds = _parsedThresholdsCache.GetOrAdd(cacheKey, _ =>
-            {
-                return userConfig.NotificationThresholds.Split(',')
+                userConfig.NotificationThresholds.Split(',')
                     .Select(s => int.TryParse(s.Trim(), out var p) ? p : -1)
                     .Where(p => p > 0 && p < 100)
-                    .ToList();
-            });
+                    .ToList());
 
             if (!thresholds.Any()) return;
 
+            var userId = session.UserId;
+
             if (userConfig.EnableDailyLimit && userConfig.DailyLimitMinutes > 0)
-                CheckAndSendThresholdNotification(session, "daily", TimeSpan.FromMinutes(userConfig.DailyLimitMinutes).Add(TimeSpan.FromTicks(userData.TimeCreditTicksDaily)), TimeSpan.FromTicks(userData.WatchedTimeTicksDaily), thresholds, _dailyThresholdsNotified);
+            {
+                var limit = TimeSpan.FromMinutes(userConfig.DailyLimitMinutes) + TimeSpan.FromTicks(userData.TimeCreditTicksDaily);
+                CheckAndSendThresholdNotification(session, userId, "daily", limit, TimeSpan.FromTicks(userData.WatchedTimeTicksDaily), thresholds, _dailyThresholdsNotified);
+            }
 
             if (userConfig.EnableWeeklyLimit && userConfig.WeeklyLimitHours > 0)
-                CheckAndSendThresholdNotification(session, "weekly", TimeSpan.FromHours(userConfig.WeeklyLimitHours).Add(TimeSpan.FromTicks(userData.TimeCreditTicksWeekly)), TimeSpan.FromTicks(userData.WatchedTimeTicksWeekly), thresholds, _weeklyThresholdsNotified);
+            {
+                var limit = TimeSpan.FromHours(userConfig.WeeklyLimitHours) + TimeSpan.FromTicks(userData.TimeCreditTicksWeekly);
+                CheckAndSendThresholdNotification(session, userId, "weekly", limit, TimeSpan.FromTicks(userData.WatchedTimeTicksWeekly), thresholds, _weeklyThresholdsNotified);
+            }
 
             if (userConfig.EnableMonthlyLimit && userConfig.MonthlyLimitHours > 0)
-                CheckAndSendThresholdNotification(session, "monthly", TimeSpan.FromHours(userConfig.MonthlyLimitHours).Add(TimeSpan.FromTicks(userData.TimeCreditTicksMonthly)), TimeSpan.FromTicks(userData.WatchedTimeTicksMonthly), thresholds, _monthlyThresholdsNotified);
+            {
+                var limit = TimeSpan.FromHours(userConfig.MonthlyLimitHours) + TimeSpan.FromTicks(userData.TimeCreditTicksMonthly);
+                CheckAndSendThresholdNotification(session, userId, "monthly", limit, TimeSpan.FromTicks(userData.WatchedTimeTicksMonthly), thresholds, _monthlyThresholdsNotified);
+            }
 
             if (userConfig.EnableYearlyLimit && userConfig.YearlyLimitHours > 0)
-                CheckAndSendThresholdNotification(session, "yearly", TimeSpan.FromHours(userConfig.YearlyLimitHours).Add(TimeSpan.FromTicks(userData.TimeCreditTicksYearly)), TimeSpan.FromTicks(userData.WatchedTimeTicksYearly), thresholds, _yearlyThresholdsNotified);
+            {
+                var limit = TimeSpan.FromHours(userConfig.YearlyLimitHours) + TimeSpan.FromTicks(userData.TimeCreditTicksYearly);
+                CheckAndSendThresholdNotification(session, userId, "yearly", limit, TimeSpan.FromTicks(userData.WatchedTimeTicksYearly), thresholds, _yearlyThresholdsNotified);
+            }
         }
 
-        private static void CheckAndSendThresholdNotification(SessionInfo session, string period, TimeSpan limit, TimeSpan watched, List<int> thresholds, ConcurrentDictionary<string, HashSet<int>> notifiedDict)
+        private static void CheckAndSendThresholdNotification(SessionInfo session, string userId, string period, TimeSpan limit, TimeSpan watched, List<int> thresholds, ConcurrentDictionary<string, HashSet<int>> notifiedDict)
         {
             if (limit.TotalSeconds <= 0) return;
 
-            var percentageWatched = (watched.TotalSeconds / limit.TotalSeconds) * 100;
-            var notifiedForUser = notifiedDict.GetOrAdd(session.UserId, new HashSet<int>());
+            var pct = (watched.TotalSeconds / limit.TotalSeconds) * 100.0;
+            var notified = notifiedDict.GetOrAdd(userId, new HashSet<int>());
 
             foreach (var threshold in thresholds)
             {
-                if (percentageWatched >= threshold && !notifiedForUser.Contains(threshold))
+                if (pct >= threshold && !notified.Contains(threshold))
                 {
+                    notified.Add(threshold);
                     var message = $"Watch Time Warning: You have used over {threshold}% of your {period} limit.";
                     _ = Task.Run(async () =>
                     {
-                        try
-                        {
-                            await InAppNotificationService.SendNotificationAsync(session, "Watch Time Warning", message, false).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger?.ErrorException("[WatchTimeManager] Error sending threshold notification.", ex);
-                        }
+                        try { await InAppNotificationService.SendNotificationAsync(session, "Watch Time Warning", message, false).ConfigureAwait(false); }
+                        catch (Exception ex) { _logger?.ErrorException("[WatchTimeManager] Error sending threshold notification.", ex); }
                     });
-                    notifiedForUser.Add(threshold);
 
-                    var config = Plugin.Instance?.Configuration;
-                    if (config != null && config.EnableWatchLimitNotifications && !string.IsNullOrEmpty(session.UserName))
-                    {
+                    var cfg = Plugin.Instance?.Configuration;
+                    if (cfg != null && cfg.EnableWatchLimitNotifications && !string.IsNullOrEmpty(session.UserName))
                         ServerNotificationService.SendThresholdNotification(session.UserName, period, threshold);
-                    }
                 }
             }
         }
 
-        public static PlaybackBlockReason GetPlaybackBlockReason(string userId)
+        private static (string header, string message) BuildBlockMessage(PlaybackBlockReason reason, string userId, PluginConfiguration config)
         {
-            var config = Plugin.Instance?.Configuration;
-            if (config == null || !config.EnableWatchTimeLimiter || string.IsNullOrEmpty(userId)) return PlaybackBlockReason.Allowed;
-
-            var userConfig = GetUserConfig(userId, config);
-            if (userConfig == null) return PlaybackBlockReason.Allowed;
-
-            var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
-
-            if (userData.TimeOutUntil > DateTime.UtcNow)
-                return PlaybackBlockReason.TimedOut;
-
-            if (userConfig.EnableTimeWindows && IsOutsideTimeWindow(userConfig, DateTime.Now))
-                return PlaybackBlockReason.OutsideTimeWindow;
-
-            if (_limitReachedNotified.ContainsKey(userId)) return PlaybackBlockReason.TimeLimitExceeded;
-
-
-            if (userConfig.EnableDailyLimit && userConfig.DailyLimitMinutes > 0 && userData.WatchedTimeTicksDaily >= (TimeSpan.FromMinutes(userConfig.DailyLimitMinutes).Ticks + userData.TimeCreditTicksDaily))
-                return PlaybackBlockReason.TimeLimitExceeded;
-
-            if (userConfig.EnableWeeklyLimit && userConfig.WeeklyLimitHours > 0 && userData.WatchedTimeTicksWeekly >= (TimeSpan.FromHours(userConfig.WeeklyLimitHours).Ticks + userData.TimeCreditTicksWeekly))
-                return PlaybackBlockReason.TimeLimitExceeded;
-
-            if (userConfig.EnableMonthlyLimit && userConfig.MonthlyLimitHours > 0 && userData.WatchedTimeTicksMonthly >= (TimeSpan.FromHours(userConfig.MonthlyLimitHours).Ticks + userData.TimeCreditTicksMonthly))
-                return PlaybackBlockReason.TimeLimitExceeded;
-
-            if (userConfig.EnableYearlyLimit && userConfig.YearlyLimitHours > 0 && userData.WatchedTimeTicksYearly >= (TimeSpan.FromHours(userConfig.YearlyLimitHours).Ticks + userData.TimeCreditTicksYearly))
-                return PlaybackBlockReason.TimeLimitExceeded;
-
-            return PlaybackBlockReason.Allowed;
-        }
-
-        private static string FormatTimeFromDouble(double hour)
-        {
-            var time = TimeSpan.FromHours(hour);
-            var dateTime = DateTime.Today.Add(time);
-            return dateTime.ToString("t");
-        }
-
-        private static string FormatTimeSpan(TimeSpan timeSpan)
-        {
-            if (timeSpan.TotalSeconds <= 1)
-            {
-                return "a moment";
-            }
-
-            var parts = new List<string>();
-
-            if (timeSpan.Hours > 0)
-            {
-                parts.Add($"{timeSpan.Hours} hour" + (timeSpan.Hours == 1 ? string.Empty : "s"));
-            }
-            if (timeSpan.Minutes > 0)
-            {
-                parts.Add($"{timeSpan.Minutes} minute" + (timeSpan.Minutes == 1 ? string.Empty : "s"));
-            }
-
-            if (timeSpan.TotalMinutes < 2 && timeSpan.Seconds > 0)
-            {
-                parts.Add($"{timeSpan.Seconds} second" + (timeSpan.Seconds == 1 ? string.Empty : "s"));
-            }
-
-            return string.Join(" and ", parts);
-        }
-
-        public static async Task SendBlockNotificationToUser(string userId, PlaybackBlockReason reason)
-        {
-            if (_sessionManager == null) return;
-            var config = Plugin.Instance?.Configuration;
-            if (config == null) return;
-
-            var allUserSessions = _sessionManager.Sessions.Where(s =>
-                string.Equals(s.UserId, userId, StringComparison.OrdinalIgnoreCase) && s.IsActive
-            ).ToList();
-
-            var username = allUserSessions.FirstOrDefault(s => !string.IsNullOrEmpty(s.UserName))?.UserName ?? "Unknown";
-
-            string message;
-            string header;
             switch (reason)
             {
                 case PlaybackBlockReason.TimeLimitExceeded:
-                    message = config.WatchTimeLimitMessageText;
-                    header = "Time Limit Reached";
-                    if (_limitReachedNotified.TryAdd(userId, true))
-                    {
-                        var clientNames = string.Join(", ", allUserSessions.Select(s => s.Client).Distinct());
-                        LogManager.LogLimitReached(userId, username, clientNames);
+                    return ("Time Limit Reached", config.WatchTimeLimitMessageText);
 
-                        if (config.EnableWatchLimitNotifications)
-                        {
-                            ServerNotificationService.SendLimitReachedNotification(username, clientNames);
-                        }
-                    }
-                    break;
                 case PlaybackBlockReason.OutsideTimeWindow:
-                    message = config.TimeWindowBlockedMessageText;
-                    header = "Playback Not Allowed";
+                {
                     var userConfig = GetUserConfig(userId, config);
+                    var msg = config.TimeWindowBlockedMessageText;
                     if (userConfig != null)
                     {
-                        var startTime = FormatTimeFromDouble(userConfig.TimeWindows.FirstOrDefault(d => d.Day == DateTime.Now.DayOfWeek)?.StartHour ?? 0);
-                        var endTime = FormatTimeFromDouble(userConfig.TimeWindows.FirstOrDefault(d => d.Day == DateTime.Now.DayOfWeek)?.EndHour ?? 0);
-                        message = message.Replace("{start_time}", startTime)
-                                         .Replace("{end_time}", endTime);
+                        var rule = userConfig.TimeWindows?.FirstOrDefault(d => d.Day == DateTime.Now.DayOfWeek);
+                        if (rule != null)
+                        {
+                            msg = msg.Replace("{start_time}", FormatTimeFromDouble(rule.StartHour))
+                                     .Replace("{end_time}", FormatTimeFromDouble(rule.EndHour));
+                        }
                     }
-                    break;
-                case PlaybackBlockReason.TimedOut:
-                    header = "Playback Disabled";
-                    if (_userWatchData.TryGetValue(userId, out var userData))
-                    {
-                        var remaining = userData.TimeOutUntil - DateTime.UtcNow;
-                        var formattedDuration = FormatTimeSpan(remaining);
-                        message = config.TimeOutMessageText.Replace("{duration}", formattedDuration);
-                    }
-                    else
-                    {
-                        message = config.TimeOutMessageText.Replace(" for the next {duration}", string.Empty);
-                    }
-                    break;
-                default:
-                    return;
-            }
+                    return ("Playback Not Allowed", msg);
+                }
 
-            foreach (var session in allUserSessions)
-            {
-                await InAppNotificationService.SendNotificationAsync(session, header, message, config.EnableConfirmationButtonOnWatchTimeLimit);
+                case PlaybackBlockReason.TimedOut:
+                {
+                    var msg = config.TimeOutMessageText;
+                    if (_userWatchData.TryGetValue(userId, out var ud))
+                        msg = msg.Replace("{duration}", FormatTimeSpan(ud.TimeOutUntil - DateTime.UtcNow));
+                    else
+                        msg = msg.Replace(" for the next {duration}", string.Empty);
+                    return ("Playback Disabled", msg);
+                }
+
+                default:
+                    return (string.Empty, string.Empty);
             }
         }
 
@@ -536,73 +465,49 @@ namespace WatchingEye
             var config = Plugin.Instance?.Configuration;
             if (config == null) return;
 
-            var allUserSessions = _sessionManager.Sessions.Where(s =>
-                string.Equals(s.UserId, userId, StringComparison.OrdinalIgnoreCase) && s.IsActive
-            ).ToList();
+            var sessions = _sessionManager.Sessions
+                .Where(s => string.Equals(s.UserId, userId, StringComparison.OrdinalIgnoreCase) && s.IsActive)
+                .ToList();
 
-            var username = allUserSessions.FirstOrDefault(s => !string.IsNullOrEmpty(s.UserName))?.UserName ?? "Unknown";
+            var username = sessions.FirstOrDefault(s => !string.IsNullOrEmpty(s.UserName))?.UserName ?? "Unknown";
 
-            if (!allUserSessions.Any())
+            if (reason == PlaybackBlockReason.TimeLimitExceeded && _limitServerNotified.TryAdd(userId, true))
             {
-                if (reason == PlaybackBlockReason.TimeLimitExceeded && _limitReachedNotified.TryAdd(userId, true))
-                {
-                    LogManager.LogLimitReached(userId, username, "System");
-                }
-                return;
+                var clients = string.Join(", ", sessions.Select(s => s.Client).Distinct());
+                LogManager.LogLimitReached(userId, username, clients.Length > 0 ? clients : "System");
+                if (config.EnableWatchLimitNotifications)
+                    ServerNotificationService.SendLimitReachedNotification(username, clients);
             }
 
-            string message;
-            string header;
-            switch (reason)
-            {
-                case PlaybackBlockReason.TimeLimitExceeded:
-                    message = config.WatchTimeLimitMessageText;
-                    header = "Time Limit Reached";
-                    if (_limitReachedNotified.TryAdd(userId, true))
-                    {
-                        var clientNames = string.Join(", ", allUserSessions.Select(s => s.Client).Distinct());
-                        LogManager.LogLimitReached(userId, username, clientNames);
+            if (!sessions.Any()) return;
 
-                        if (config.EnableWatchLimitNotifications)
-                        {
-                            ServerNotificationService.SendLimitReachedNotification(username, clientNames);
-                        }
-                    }
-                    break;
-                case PlaybackBlockReason.OutsideTimeWindow:
-                    message = config.TimeWindowBlockedMessageText;
-                    header = "Playback Not Allowed";
-                    var userConfig = GetUserConfig(userId, config);
-                    if (userConfig != null)
-                    {
-                        var startTime = FormatTimeFromDouble(userConfig.TimeWindows.FirstOrDefault(d => d.Day == DateTime.Now.DayOfWeek)?.StartHour ?? 0);
-                        var endTime = FormatTimeFromDouble(userConfig.TimeWindows.FirstOrDefault(d => d.Day == DateTime.Now.DayOfWeek)?.EndHour ?? 0);
-                        message = message.Replace("{start_time}", startTime)
-                                         .Replace("{end_time}", endTime);
-                    }
-                    break;
-                case PlaybackBlockReason.TimedOut:
-                    header = "Playback Disabled";
-                    if (_userWatchData.TryGetValue(userId, out var userData))
-                    {
-                        var remaining = userData.TimeOutUntil - DateTime.UtcNow;
-                        var formattedDuration = FormatTimeSpan(remaining);
-                        message = config.TimeOutMessageText.Replace("{duration}", formattedDuration);
-                    }
-                    else
-                    {
-                        message = config.TimeOutMessageText.Replace(" for the next {duration}", string.Empty);
-                    }
-                    break;
-                default:
-                    return;
-            }
+            var (header, message) = BuildBlockMessage(reason, userId, config);
+            if (string.IsNullOrEmpty(header)) return;
 
-            foreach (var session in allUserSessions)
+            foreach (var session in sessions)
             {
                 await _sessionManager.SendPlaystateCommand(null, session.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
                 await InAppNotificationService.SendNotificationAsync(session, header, message, config.EnableConfirmationButtonOnWatchTimeLimit);
             }
+        }
+
+        public static async Task SendBlockNotificationToUser(string userId, PlaybackBlockReason reason)
+        {
+            if (_sessionManager == null) return;
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return;
+
+            var sessions = _sessionManager.Sessions
+                .Where(s => string.Equals(s.UserId, userId, StringComparison.OrdinalIgnoreCase) && s.IsActive)
+                .ToList();
+
+            if (!sessions.Any()) return;
+
+            var (header, message) = BuildBlockMessage(reason, userId, config);
+            if (string.IsNullOrEmpty(header)) return;
+
+            foreach (var session in sessions)
+                await InAppNotificationService.SendNotificationAsync(session, header, message, config.EnableConfirmationButtonOnWatchTimeLimit);
         }
 
         public static List<LimitedUserStatus> GetLimitedUsersStatus()
@@ -618,14 +523,18 @@ namespace WatchingEye
                 {
                     UserId = limitedUser.UserId,
                     Username = limitedUser.Username,
-                    DailyLimitMinutes = limitedUser.DailyLimitMinutes + (int)TimeSpan.FromTicks(userData.TimeCreditTicksDaily).TotalMinutes,
-                    WeeklyLimitHours = limitedUser.WeeklyLimitHours + (int)TimeSpan.FromTicks(userData.TimeCreditTicksWeekly).TotalHours,
-                    MonthlyLimitHours = limitedUser.MonthlyLimitHours + (int)TimeSpan.FromTicks(userData.TimeCreditTicksMonthly).TotalHours,
-                    YearlyLimitHours = limitedUser.YearlyLimitHours + (int)TimeSpan.FromTicks(userData.TimeCreditTicksYearly).TotalHours,
+                    DailyLimitMinutes = limitedUser.DailyLimitMinutes,
+                    WeeklyLimitHours = limitedUser.WeeklyLimitHours,
+                    MonthlyLimitHours = limitedUser.MonthlyLimitHours,
+                    YearlyLimitHours = limitedUser.YearlyLimitHours,
                     SecondsWatchedDaily = TimeSpan.FromTicks(userData.WatchedTimeTicksDaily).TotalSeconds,
                     SecondsWatchedWeekly = TimeSpan.FromTicks(userData.WatchedTimeTicksWeekly).TotalSeconds,
                     SecondsWatchedMonthly = TimeSpan.FromTicks(userData.WatchedTimeTicksMonthly).TotalSeconds,
                     SecondsWatchedYearly = TimeSpan.FromTicks(userData.WatchedTimeTicksYearly).TotalSeconds,
+                    CreditSecondsDaily = TimeSpan.FromTicks(userData.TimeCreditTicksDaily).TotalSeconds,
+                    CreditSecondsWeekly = TimeSpan.FromTicks(userData.TimeCreditTicksWeekly).TotalSeconds,
+                    CreditSecondsMonthly = TimeSpan.FromTicks(userData.TimeCreditTicksMonthly).TotalSeconds,
+                    CreditSecondsYearly = TimeSpan.FromTicks(userData.TimeCreditTicksYearly).TotalSeconds,
                     TimeOutUntil = userData.TimeOutUntil,
                 });
             }
@@ -634,16 +543,15 @@ namespace WatchingEye
 
         public static void ExtendTimeForUser(string userId, int minutesToExtend)
         {
-            if (!_userWatchData.TryGetValue(userId, out var userData)) return;
+            var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
 
-            var timeCreditToAdd = TimeSpan.FromMinutes(minutesToExtend);
+            var ticks = TimeSpan.FromMinutes(minutesToExtend).Ticks;
+            userData.TimeCreditTicksDaily += ticks;
+            userData.TimeCreditTicksWeekly += ticks;
+            userData.TimeCreditTicksMonthly += ticks;
+            userData.TimeCreditTicksYearly += ticks;
 
-            userData.TimeCreditTicksDaily += timeCreditToAdd.Ticks;
-            userData.TimeCreditTicksWeekly += timeCreditToAdd.Ticks;
-            userData.TimeCreditTicksMonthly += timeCreditToAdd.Ticks;
-            userData.TimeCreditTicksYearly += timeCreditToAdd.Ticks;
-
-            _limitReachedNotified.TryRemove(userId, out _);
+            _limitServerNotified.TryRemove(userId, out _);
             SaveWatchTimeDataImmediate();
         }
 
@@ -656,14 +564,8 @@ namespace WatchingEye
             _logger?.Info($"[WatchTimeManager] User {userId} has been timed out for {minutes} minutes.");
             _ = Task.Run(async () =>
             {
-                try
-                {
-                    await StopPlaybackForUser(userId, PlaybackBlockReason.TimedOut).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger?.ErrorException($"[WatchTimeManager] Error stopping playback during timeout for user {userId}.", ex);
-                }
+                try { await StopPlaybackForUser(userId, PlaybackBlockReason.TimedOut).ConfigureAwait(false); }
+                catch (Exception ex) { _logger?.ErrorException($"[WatchTimeManager] Error stopping playback during timeout for user {userId}.", ex); }
             });
         }
 
@@ -679,32 +581,62 @@ namespace WatchingEye
 
         public static void ResetWatchTimeForUser(string userId)
         {
-            if (_userWatchData.TryGetValue(userId, out var userData))
-            {
-                userData.WatchedTimeTicksDaily = 0;
-                userData.TimeCreditTicksDaily = 0;
-                userData.WatchedTimeTicksWeekly = 0;
-                userData.TimeCreditTicksWeekly = 0;
-                userData.WatchedTimeTicksMonthly = 0;
-                userData.TimeCreditTicksMonthly = 0;
-                userData.WatchedTimeTicksYearly = 0;
-                userData.TimeCreditTicksYearly = 0;
+            if (!_userWatchData.TryGetValue(userId, out var userData)) return;
 
-                _limitReachedNotified.TryRemove(userId, out _);
-                _dailyThresholdsNotified.TryRemove(userId, out _);
-                _weeklyThresholdsNotified.TryRemove(userId, out _);
-                _monthlyThresholdsNotified.TryRemove(userId, out _);
-                _yearlyThresholdsNotified.TryRemove(userId, out _);
-                SaveWatchTimeDataImmediate();
-            }
+            userData.WatchedTimeTicksDaily = 0;
+            userData.TimeCreditTicksDaily = 0;
+            userData.WatchedTimeTicksWeekly = 0;
+            userData.TimeCreditTicksWeekly = 0;
+            userData.WatchedTimeTicksMonthly = 0;
+            userData.TimeCreditTicksMonthly = 0;
+            userData.WatchedTimeTicksYearly = 0;
+            userData.TimeCreditTicksYearly = 0;
+
+            _limitServerNotified.TryRemove(userId, out _);
+            _dailyThresholdsNotified.TryRemove(userId, out _);
+            _weeklyThresholdsNotified.TryRemove(userId, out _);
+            _monthlyThresholdsNotified.TryRemove(userId, out _);
+            _yearlyThresholdsNotified.TryRemove(userId, out _);
+            SaveWatchTimeDataImmediate();
+        }
+
+        public static void DeleteUserData(string userId)
+        {
+            _userWatchData.TryRemove(userId, out _);
+            _limitServerNotified.TryRemove(userId, out _);
+            _dailyThresholdsNotified.TryRemove(userId, out _);
+            _weeklyThresholdsNotified.TryRemove(userId, out _);
+            _monthlyThresholdsNotified.TryRemove(userId, out _);
+            _yearlyThresholdsNotified.TryRemove(userId, out _);
+            SaveWatchTimeDataImmediate();
+            _logger?.Info($"[WatchTimeManager] Deleted watch data for user {userId}.");
         }
 
         public static void ResetAllWatchTimes()
         {
             foreach (var userId in _userWatchData.Keys)
-            {
                 ResetWatchTimeForUser(userId);
-            }
+        }
+
+        private static string FormatTimeFromDouble(double hour)
+        {
+            return DateTime.Today.Add(TimeSpan.FromHours(hour)).ToString("t");
+        }
+
+        private static string FormatTimeSpan(TimeSpan timeSpan)
+        {
+            if (timeSpan.TotalSeconds <= 1) return "a moment";
+
+            var parts = new List<string>();
+
+            if (timeSpan.Hours > 0)
+                parts.Add($"{timeSpan.Hours} hour" + (timeSpan.Hours == 1 ? string.Empty : "s"));
+            if (timeSpan.Minutes > 0)
+                parts.Add($"{timeSpan.Minutes} minute" + (timeSpan.Minutes == 1 ? string.Empty : "s"));
+            if (timeSpan.TotalMinutes < 2 && timeSpan.Seconds > 0)
+                parts.Add($"{timeSpan.Seconds} second" + (timeSpan.Seconds == 1 ? string.Empty : "s"));
+
+            return string.Join(" and ", parts);
         }
 
         private static void LoadWatchTimeData()
@@ -752,18 +684,13 @@ namespace WatchingEye
                 {
                     var data = new WatchTimePersistenceData { UserWatchTimes = _userWatchData.Values.ToList() };
                     var json = _jsonSerializer.SerializeToString(data);
-
-                    var tempFilePath = _watchTimeDataPath + ".tmp";
-                    File.WriteAllText(tempFilePath, json);
+                    var tempPath = _watchTimeDataPath + ".tmp";
+                    File.WriteAllText(tempPath, json);
 
                     if (File.Exists(_watchTimeDataPath))
-                    {
-                        File.Replace(tempFilePath, _watchTimeDataPath, null);
-                    }
+                        File.Replace(tempPath, _watchTimeDataPath, null);
                     else
-                    {
-                        File.Move(tempFilePath, _watchTimeDataPath);
-                    }
+                        File.Move(tempPath, _watchTimeDataPath);
                 }
                 catch (Exception ex)
                 {

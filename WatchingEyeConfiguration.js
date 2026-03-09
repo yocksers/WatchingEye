@@ -284,7 +284,10 @@
         view.querySelectorAll('#global_time-windows-container .day-window-row').forEach(row => {
             const dayIndex = parseInt(row.getAttribute('data-day'));
             const dayName = dayNames[dayIndex];
-            const dayRule = config.TimeWindows.find(w => w.Day === dayName);
+            const dayRule = config.TimeWindows.find(w => {
+                const d = typeof w.Day === 'string' ? w.Day : dayNames[w.Day];
+                return d === dayName;
+            });
 
             if (dayRule) {
                 row.querySelector('.edit-day-window-enabled-global').checked = dayRule.IsEnabled || false;
@@ -478,6 +481,12 @@
                     const user = this.config.LimitedUsers.find(u => u.UserId === userId);
                     if (user) {
                         this.config.LimitedUsers = this.config.LimitedUsers.filter(u => u.UserId !== userId);
+                        ApiClient.ajax({
+                            type: 'POST',
+                            url: ApiClient.getUrl('WatchingEye/DeleteUserData'),
+                            data: JSON.stringify({ UserId: userId }),
+                            contentType: 'application/json'
+                        }).catch(err => console.error('Error deleting user watch data:', err));
                         toast(`User ${user.Username} removed. Please click Save to apply changes.`);
                         this.renderLimitedUsers(this.view, this.config);
                     }
@@ -685,23 +694,34 @@
             }
 
             let remainingTimeText = 'No active limits.';
-            if (status) {
+            {
+                const formatHoursMinutes = (seconds) => {
+                    const totalMinutes = Math.floor(seconds / 60);
+                    const hours = Math.floor(totalMinutes / 60);
+                    const minutes = totalMinutes % 60;
+                    return `${hours}:${String(minutes).padStart(2, '0')}`;
+                };
+
                 const parts = [];
-                if (user.EnableDailyLimit) {
-                    const watched = Math.floor(status.SecondsWatchedDaily / 60);
-                    parts.push(`Daily: ${watched}/${status.DailyLimitMinutes}m`);
+                if (user.EnableDailyLimit && user.DailyLimitMinutes > 0) {
+                    const watched = formatHoursMinutes(status ? status.SecondsWatchedDaily : 0);
+                    const limit = formatHoursMinutes(user.DailyLimitMinutes * 60 + (status ? status.CreditSecondsDaily : 0));
+                    parts.push(`Daily: ${watched}/${limit}`);
                 }
-                if (user.EnableWeeklyLimit) {
-                    const watched = Math.floor(status.SecondsWatchedWeekly / 3600);
-                    parts.push(`Weekly: ${watched}/${status.WeeklyLimitHours}h`);
+                if (user.EnableWeeklyLimit && user.WeeklyLimitHours > 0) {
+                    const watched = formatHoursMinutes(status ? status.SecondsWatchedWeekly : 0);
+                    const limit = formatHoursMinutes(user.WeeklyLimitHours * 3600 + (status ? status.CreditSecondsWeekly : 0));
+                    parts.push(`Weekly: ${watched}/${limit}`);
                 }
-                if (user.EnableMonthlyLimit) {
-                    const watched = Math.floor(status.SecondsWatchedMonthly / 3600);
-                    parts.push(`Monthly: ${watched}/${status.MonthlyLimitHours}h`);
+                if (user.EnableMonthlyLimit && user.MonthlyLimitHours > 0) {
+                    const watched = formatHoursMinutes(status ? status.SecondsWatchedMonthly : 0);
+                    const limit = formatHoursMinutes(user.MonthlyLimitHours * 3600 + (status ? status.CreditSecondsMonthly : 0));
+                    parts.push(`Monthly: ${watched}/${limit}`);
                 }
-                if (user.EnableYearlyLimit) {
-                    const watched = Math.floor(status.SecondsWatchedYearly / 3600);
-                    parts.push(`Yearly: ${watched}/${status.YearlyLimitHours}h`);
+                if (user.EnableYearlyLimit && user.YearlyLimitHours > 0) {
+                    const watched = formatHoursMinutes(status ? status.SecondsWatchedYearly : 0);
+                    const limit = formatHoursMinutes(user.YearlyLimitHours * 3600 + (status ? status.CreditSecondsYearly : 0));
+                    parts.push(`Yearly: ${watched}/${limit}`);
                 }
                 if (parts.length > 0) {
                     remainingTimeText = parts.join(' | ');
@@ -987,7 +1007,14 @@
                     usersToRender.unshift({ 
                         UserId: newUserId, 
                         EnableDailyLimit: true, 
-                        DailyLimitMinutes: 120, 
+                        DailyLimitMinutes: 120,
+                        EnableWeeklyLimit: false,
+                        WeeklyLimitHours: 20,
+                        EnableMonthlyLimit: false,
+                        MonthlyLimitHours: 80,
+                        EnableYearlyLimit: false,
+                        YearlyLimitHours: 0,
+                        EnableThresholdNotifications: false,
                         NotificationThresholds: '80,95', 
                         ResetTimeOfDayHours: 3, 
                         EnableDailyReset: true,
@@ -1064,7 +1091,10 @@
                             editor.querySelectorAll('.day-window-row').forEach(row => {
                                 const dayIndex = parseInt(row.getAttribute('data-day'));
                                 const dayName = dayNames[dayIndex];
-                                const dayRule = user.TimeWindows.find(w => w.Day === dayName);
+                                const dayRule = user.TimeWindows.find(w => {
+                                    const d = typeof w.Day === 'string' ? w.Day : dayNames[w.Day];
+                                    return d === dayName;
+                                });
 
                                 if (dayRule) {
                                     row.querySelector('.edit-day-window-enabled').checked = dayRule.IsEnabled || false;

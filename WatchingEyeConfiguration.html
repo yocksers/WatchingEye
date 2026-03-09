@@ -247,6 +247,14 @@
                             <div class="fieldDescription">If enabled, playback will be stopped if a transcode is triggered from a blocked source format.</div>
                         </div>
                         <div class="inputContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkStopVideoTranscoding" data-config-key="StopVideoTranscoding" /><span>Stop Video Transcoding</span></label>
+                            <div class="fieldDescription">If enabled, playback will be blocked when video transcoding is detected.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label><input is="emby-checkbox" type="checkbox" id="chkStopAudioTranscoding" data-config-key="StopAudioTranscoding" /><span>Stop Audio Transcoding</span></label>
+                            <div class="fieldDescription">If enabled, playback will be blocked when audio transcoding is detected.</div>
+                        </div>
+                        <div class="inputContainer">
                             <label><input is="emby-checkbox" type="checkbox" id="chkEnableConfirmationButtonOnTranscodeBlock" data-config-key="EnableConfirmationButtonOnTranscodeBlock" /><span>Show confirmation button for Transcode Block</span></label>
                             <div class="fieldDescription">If enabled, blocked transcode messages for blocked formats will require manual dismissal.</div>
                         </div>

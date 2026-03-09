@@ -104,6 +104,8 @@ namespace WatchingEye
 
         public bool EnableTranscodeBlocking { get; set; } = false;
         public string BlockedTranscodeFormats { get; set; } = "mkv,ts,avi";
+        public bool StopAudioTranscoding { get; set; } = true;
+        public bool StopVideoTranscoding { get; set; } = true;
 
         public bool EnableResolutionBlocking { get; set; } = false;
         public int MaxTranscodingResolution { get; set; } = 2160;

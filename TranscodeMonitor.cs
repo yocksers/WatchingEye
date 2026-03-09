@@ -430,15 +430,38 @@ namespace WatchingEye
 
                 if (!string.IsNullOrEmpty(sourceContainer) && blockedFormats.Contains(sourceContainer))
                 {
-                    _logger?.Info($"[TranscodeMonitor] Blocking transcode for user '{currentSession.UserName}' on client '{currentSession.Client}'. Source format '{sourceContainer}' is on the blocklist.");
+                    var blockTranscodeInfo = currentSession.TranscodingInfo;
+                    var isVideoTranscoding = blockTranscodeInfo != null && !blockTranscodeInfo.IsVideoDirect;
+                    var isAudioTranscoding = blockTranscodeInfo != null && !blockTranscodeInfo.IsAudioDirect;
 
-                    var text = $"Transcoding from the '{sourceContainer.ToUpper()}' container is not permitted by the server administrator.";
+                    var shouldBlock = false;
+                    var blockReasonParts = new List<string>();
 
-                    if (_sessionManager == null) return;
-                    _sessionsBeingBlocked.TryAdd(currentSession.Id, true);
-                    await InAppNotificationService.SendNotificationAsync(currentSession.Id, "Playback Blocked", text, config.EnableConfirmationButtonOnTranscodeBlock).ConfigureAwait(false);
-                    await _sessionManager.SendPlaystateCommand(null, currentSession.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
-                    return;
+                    if (isVideoTranscoding && config.StopVideoTranscoding)
+                    {
+                        shouldBlock = true;
+                        blockReasonParts.Add("video transcoding");
+                    }
+
+                    if (isAudioTranscoding && config.StopAudioTranscoding)
+                    {
+                        shouldBlock = true;
+                        blockReasonParts.Add("audio transcoding");
+                    }
+
+                    if (shouldBlock)
+                    {
+                        var blockReasonText = string.Join(" and ", blockReasonParts);
+                        _logger?.Info($"[TranscodeMonitor] Blocking transcode for user '{currentSession.UserName}' on client '{currentSession.Client}'. Source format '{sourceContainer}' is on the blocklist ({blockReasonText}).");
+
+                        var text = $"Transcoding from the '{sourceContainer.ToUpper()}' container is not permitted by the server administrator.";
+
+                        if (_sessionManager == null) return;
+                        _sessionsBeingBlocked.TryAdd(currentSession.Id, true);
+                        await InAppNotificationService.SendNotificationAsync(currentSession.Id, "Playback Blocked", text, config.EnableConfirmationButtonOnTranscodeBlock).ConfigureAwait(false);
+                        await _sessionManager.SendPlaystateCommand(null, currentSession.Id, new PlaystateRequest { Command = PlaystateCommand.Stop }, CancellationToken.None).ConfigureAwait(false);
+                        return;
+                    }
                 }
             }
 
