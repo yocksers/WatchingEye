@@ -298,6 +298,20 @@ namespace WatchingEye
             return trigger.ToUniversalTime();
         }
 
+        private static int GetEffectiveDailyLimitMinutes(LimitedUser userConfig)
+        {
+            if (!userConfig.EnablePerDayLimits || userConfig.PerDayLimits == null || !userConfig.PerDayLimits.Any())
+                return userConfig.DailyLimitMinutes;
+
+            var today = DateTime.Now.DayOfWeek;
+            var dayOverride = userConfig.PerDayLimits.FirstOrDefault(o => o.Day == today && o.IsEnabled);
+            if (dayOverride != null)
+                return dayOverride.LimitMinutes;
+
+            // Per-day is enabled but today has no override — fall back to the flat daily limit only if it is also enabled
+            return userConfig.EnableDailyLimit ? userConfig.DailyLimitMinutes : 0;
+        }
+
         private static bool IsOutsideTimeWindow(LimitedUser userConfig, DateTime localNow)
         {
             var rule = userConfig.TimeWindows?.FirstOrDefault(w => w.Day == localNow.DayOfWeek);
@@ -327,9 +341,13 @@ namespace WatchingEye
             if (userConfig.EnableTimeWindows && IsOutsideTimeWindow(userConfig, DateTime.Now))
                 return PlaybackBlockReason.OutsideTimeWindow;
 
-            if (userConfig.EnableDailyLimit && userConfig.DailyLimitMinutes > 0 &&
-                userData.WatchedTimeTicksDaily >= TimeSpan.FromMinutes(userConfig.DailyLimitMinutes).Ticks + userData.TimeCreditTicksDaily)
-                return PlaybackBlockReason.TimeLimitExceeded;
+            if (userConfig.EnableDailyLimit || userConfig.EnablePerDayLimits)
+            {
+                var dailyLimitMinutes = GetEffectiveDailyLimitMinutes(userConfig);
+                if (dailyLimitMinutes > 0 &&
+                    userData.WatchedTimeTicksDaily >= TimeSpan.FromMinutes(dailyLimitMinutes).Ticks + userData.TimeCreditTicksDaily)
+                    return PlaybackBlockReason.TimeLimitExceeded;
+            }
 
             if (userConfig.EnableWeeklyLimit && userConfig.WeeklyLimitHours > 0 &&
                 userData.WatchedTimeTicksWeekly >= TimeSpan.FromHours(userConfig.WeeklyLimitHours).Ticks + userData.TimeCreditTicksWeekly)
@@ -370,10 +388,14 @@ namespace WatchingEye
 
             var userId = session.UserId;
 
-            if (userConfig.EnableDailyLimit && userConfig.DailyLimitMinutes > 0)
+            if (userConfig.EnableDailyLimit || userConfig.EnablePerDayLimits)
             {
-                var limit = TimeSpan.FromMinutes(userConfig.DailyLimitMinutes) + TimeSpan.FromTicks(userData.TimeCreditTicksDaily);
-                CheckAndSendThresholdNotification(session, userId, "daily", limit, TimeSpan.FromTicks(userData.WatchedTimeTicksDaily), thresholds, _dailyThresholdsNotified);
+                var dailyLimitMinutes = GetEffectiveDailyLimitMinutes(userConfig);
+                if (dailyLimitMinutes > 0)
+                {
+                    var limit = TimeSpan.FromMinutes(dailyLimitMinutes) + TimeSpan.FromTicks(userData.TimeCreditTicksDaily);
+                    CheckAndSendThresholdNotification(session, userId, "daily", limit, TimeSpan.FromTicks(userData.WatchedTimeTicksDaily), thresholds, _dailyThresholdsNotified);
+                }
             }
 
             if (userConfig.EnableWeeklyLimit && userConfig.WeeklyLimitHours > 0)
@@ -550,6 +572,57 @@ namespace WatchingEye
             userData.TimeCreditTicksWeekly += ticks;
             userData.TimeCreditTicksMonthly += ticks;
             userData.TimeCreditTicksYearly += ticks;
+
+            _limitServerNotified.TryRemove(userId, out _);
+            SaveWatchTimeDataImmediate();
+        }
+
+        public static void ExtendPeriodTimeForUser(string userId, string period, int minutesToExtend)
+        {
+            var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
+            var ticks = TimeSpan.FromMinutes(minutesToExtend).Ticks;
+
+            switch (period.ToLowerInvariant())
+            {
+                case "daily":   userData.TimeCreditTicksDaily   += ticks; break;
+                case "weekly":  userData.TimeCreditTicksWeekly  += ticks; break;
+                case "monthly": userData.TimeCreditTicksMonthly += ticks; break;
+                case "yearly":  userData.TimeCreditTicksYearly  += ticks; break;
+                default: return;
+            }
+
+            _limitServerNotified.TryRemove(userId, out _);
+            SaveWatchTimeDataImmediate();
+        }
+
+        public static void ResetPeriodTimeForUser(string userId, string period)
+        {
+            var userData = _userWatchData.GetOrAdd(userId, new UserWatchData { UserId = userId });
+
+            switch (period.ToLowerInvariant())
+            {
+                case "daily":
+                    userData.WatchedTimeTicksDaily = 0;
+                    userData.TimeCreditTicksDaily = 0;
+                    _dailyThresholdsNotified.TryRemove(userId, out _);
+                    break;
+                case "weekly":
+                    userData.WatchedTimeTicksWeekly = 0;
+                    userData.TimeCreditTicksWeekly = 0;
+                    _weeklyThresholdsNotified.TryRemove(userId, out _);
+                    break;
+                case "monthly":
+                    userData.WatchedTimeTicksMonthly = 0;
+                    userData.TimeCreditTicksMonthly = 0;
+                    _monthlyThresholdsNotified.TryRemove(userId, out _);
+                    break;
+                case "yearly":
+                    userData.WatchedTimeTicksYearly = 0;
+                    userData.TimeCreditTicksYearly = 0;
+                    _yearlyThresholdsNotified.TryRemove(userId, out _);
+                    break;
+                default: return;
+            }
 
             _limitServerNotified.TryRemove(userId, out _);
             SaveWatchTimeDataImmediate();

@@ -1,176 +1,163 @@
-﻿using MediaBrowser.Common.Configuration;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Serialization;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading;
 
 namespace WatchingEye
 {
     public class LogEntry
     {
-        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
         public string EventType { get; set; } = string.Empty;
-        public string UserId { get; set; } = string.Empty;
         public string Username { get; set; } = string.Empty;
-        public string ClientName { get; set; } = string.Empty;
         public string Message { get; set; } = string.Empty;
+        public string ClientName { get; set; } = string.Empty;
+        public DateTime Timestamp { get; set; }
+    }
+
+    public class LogPersistenceData
+    {
+        public List<LogEntry> Entries { get; set; } = new List<LogEntry>();
     }
 
     public static class LogManager
     {
         private static ILogger? _logger;
         private static IJsonSerializer? _jsonSerializer;
-        private static string? _logFilePath;
-        private static bool _isRunning = false;
-        private static Timer? _saveTimer;
+        private static string? _logDataPath;
+
+        private static readonly object _lock = new object();
+        private static List<LogEntry> _entries = new List<LogEntry>();
         private static bool _isDirty = false;
 
-        private static readonly object _saveLock = new object();
-
-        private static readonly ConcurrentQueue<LogEntry> _logEntries = new();
-        private const int MaxLogEntries = 200;
+        private const int MaxEntries = 200;
 
         public static void Start(ILogger logger, IJsonSerializer jsonSerializer, IApplicationPaths appPaths)
         {
-            if (_isRunning) return;
-
             _logger = logger;
             _jsonSerializer = jsonSerializer;
-            _logFilePath = Path.Combine(appPaths.PluginConfigurationsPath, "WatchingEye.Logging.json");
-
-            LoadLogs();
-
-            _saveTimer = new Timer(OnSaveTimerElapsed, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
-            _isRunning = true;
-            _logger.Info("[LogManager] Started.");
-        }
-
-        private static void OnSaveTimerElapsed(object? state)
-        {
-            if (_isDirty)
-            {
-                SaveLogs();
-            }
+            _logDataPath = Path.Combine(appPaths.PluginConfigurationsPath, "WatchingEye.Logs.json");
+            Load();
         }
 
         public static void Stop()
         {
-            _saveTimer?.Dispose();
-            SaveLogs();
-            _isRunning = false;
-            _logger?.Info("[LogManager] Stopped.");
-        }
-
-        public static void LogTranscode(SessionInfo session, string reason)
-        {
-            var message = $"Transcode started for '{session.NowPlayingItem?.Name ?? "Unknown"}' on client '{session.Client}'. Reason: {reason}.";
-            AddLogEntry("Transcode", session, message);
+            Save();
         }
 
         public static void LogLimitReached(string userId, string username, string clientName)
         {
-            var message = "User reached their watch time limit.";
-            AddLogEntry("Limit Reached", new SessionInfo { UserId = userId, UserName = username, Client = clientName }, message);
+            AddEntry(new LogEntry
+            {
+                EventType = "LimitReached",
+                Username = username,
+                Message = $"Watch time limit reached.",
+                ClientName = clientName,
+                Timestamp = DateTime.UtcNow
+            });
         }
 
-        private static void AddLogEntry(string eventType, SessionInfo session, string message)
+        public static void LogTranscode(SessionInfo session, string reasons)
         {
-            if (!_isRunning) return;
-
-            var entry = new LogEntry
+            AddEntry(new LogEntry
             {
-                EventType = eventType,
-                UserId = session.UserId,
-                Username = session.UserName,
-                ClientName = session.Client,
-                Message = message
-            };
-            _logEntries.Enqueue(entry);
+                EventType = "Transcode",
+                Username = session.UserName ?? "Unknown",
+                Message = $"Transcode started: {reasons}",
+                ClientName = session.Client ?? "Unknown",
+                Timestamp = DateTime.UtcNow
+            });
+        }
 
-            while (_logEntries.Count > MaxLogEntries)
+        public static List<LogEntry> GetLogEntries()
+        {
+            lock (_lock)
             {
-                _logEntries.TryDequeue(out _);
+                return _entries.AsEnumerable().Reverse().ToList();
             }
-
-            _isDirty = true;
         }
 
-        public static IEnumerable<LogEntry> GetLogEntries()
+        public static List<string> GetDistinctClientNames()
         {
-            return _logEntries.OrderByDescending(e => e.Timestamp);
-        }
-
-        public static IEnumerable<string> GetDistinctClientNames()
-        {
-            return _logEntries
-                .Where(e => !string.IsNullOrEmpty(e.ClientName))
-                .Select(e => e.ClientName)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(name => name);
+            lock (_lock)
+            {
+                return _entries.Select(e => e.ClientName).Where(c => !string.IsNullOrEmpty(c)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(c => c).ToList();
+            }
         }
 
         public static void ClearLogs()
         {
-            _logEntries.Clear();
-            SaveLogs();
-            _logger?.Info("[LogManager] All log entries have been cleared.");
+            lock (_lock)
+            {
+                _entries.Clear();
+                _isDirty = true;
+            }
+            Save();
         }
 
-        private static void LoadLogs()
+        private static void AddEntry(LogEntry entry)
         {
-            if (_jsonSerializer == null || string.IsNullOrEmpty(_logFilePath) || !File.Exists(_logFilePath)) return;
+            lock (_lock)
+            {
+                _entries.Add(entry);
+                if (_entries.Count > MaxEntries)
+                    _entries.RemoveAt(0);
+                _isDirty = true;
+            }
+            Save();
+        }
+
+        private static void Load()
+        {
+            if (_jsonSerializer == null || string.IsNullOrEmpty(_logDataPath) || !File.Exists(_logDataPath))
+                return;
 
             try
             {
-                var json = File.ReadAllText(_logFilePath);
-                var logs = _jsonSerializer.DeserializeFromString<List<LogEntry>>(json);
-                if (logs != null)
+                var json = File.ReadAllText(_logDataPath);
+                var data = _jsonSerializer.DeserializeFromString<LogPersistenceData>(json);
+                if (data?.Entries != null)
                 {
-                    foreach (var log in logs)
+                    lock (_lock)
                     {
-                        _logEntries.Enqueue(log);
+                        _entries = data.Entries;
                     }
                 }
-                _logger?.Info($"[LogManager] Loaded {_logEntries.Count} log entries from file.");
             }
             catch (Exception ex)
             {
-                _logger?.ErrorException("[LogManager] Error loading logging data.", ex);
+                _logger?.ErrorException("[LogManager] Error loading log data.", ex);
             }
         }
 
-        private static void SaveLogs()
+        private static void Save()
         {
-            if (_jsonSerializer == null || string.IsNullOrEmpty(_logFilePath)) return;
+            if (_jsonSerializer == null || string.IsNullOrEmpty(_logDataPath)) return;
 
-            lock (_saveLock)
+            lock (_lock)
             {
+                if (!_isDirty) return;
+
                 try
                 {
-                    var json = _jsonSerializer.SerializeToString(_logEntries.ToList());
-                    var tempFilePath = _logFilePath + ".tmp";
+                    var data = new LogPersistenceData { Entries = new List<LogEntry>(_entries) };
+                    var json = _jsonSerializer.SerializeToString(data);
+                    var tempPath = _logDataPath + ".tmp";
+                    File.WriteAllText(tempPath, json);
 
-                    File.WriteAllText(tempFilePath, json);
-
-                    if (File.Exists(_logFilePath))
-                    {
-                        File.Replace(tempFilePath, _logFilePath, null);
-                    }
+                    if (File.Exists(_logDataPath))
+                        File.Replace(tempPath, _logDataPath, null);
                     else
-                    {
-                        File.Move(tempFilePath, _logFilePath);
-                    }
+                        File.Move(tempPath, _logDataPath);
 
                     _isDirty = false;
                 }
                 catch (Exception ex)
                 {
-                    _logger?.ErrorException("[LogManager] Error saving logging data.", ex);
+                    _logger?.ErrorException("[LogManager] Error saving log data.", ex);
                 }
             }
         }

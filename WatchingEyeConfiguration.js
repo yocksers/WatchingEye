@@ -103,6 +103,17 @@
             </div>
         `).join('');
 
+        let perDayLimitsHtmlGlobal = daysOfWeek.map((day, index) => `
+            <div class="day-limit-row" data-day="${index}" style="display: flex; align-items: center; gap: 1em; margin-bottom: 0.8em; flex-wrap: wrap;">
+                <div style="width: 120px; flex-shrink: 0;">
+                    <label class="checkboxContainer" style="padding:0;"><input is="emby-checkbox" type="checkbox" class="edit-day-limit-enabled-global" /><span>${day}</span></label>
+                </div>
+                <div style="flex-grow:1; max-width: 200px;">
+                    <input is="emby-input" type="number" class="edit-day-limit-minutes-global" label="Minutes:" value="120" />
+                </div>
+            </div>
+        `).join('');
+
         const editorHtml = `
             <div class="emby-tabs-slider" style="margin: 1.5em 0 1em;">
                 <div class="emby-tabs">
@@ -130,6 +141,13 @@
                  <div class="inputContainer">
                      <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="global_enable-yearly" /><span>Enable Yearly Limit</span></label>
                      <input is="emby-input" id="global_yearly-hours" type="number" label="Yearly Limit (Hours):" />
+                </div>
+                <div class="inputContainer" style="margin-top: 1em;">
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="global_enable-per-day-limits" /><span>Use different limits per day of the week</span></label>
+                    <div class="fieldDescription">Set a specific limit for each day. This works independently — you do not need to enable the flat daily limit above. Days without an override checked will use the flat daily limit if that is also enabled, otherwise they are unlimited.</div>
+                </div>
+                <div id="global_per-day-limits-container" style="margin-top: 1em; padding-top: 1em; border-top: 1px solid #444;">
+                    ${perDayLimitsHtmlGlobal}
                 </div>
             </div>
 
@@ -307,6 +325,33 @@
         };
         mainToggle.addEventListener('change', updateVisibility);
         updateVisibility();
+
+        view.querySelector('#global_enable-per-day-limits').checked = config.EnablePerDayLimits || false;
+        if (!config.PerDayLimits) config.PerDayLimits = [];
+
+        view.querySelectorAll('#global_per-day-limits-container .day-limit-row').forEach(row => {
+            const dayIndex = parseInt(row.getAttribute('data-day'));
+            const dayName = dayNames[dayIndex];
+            const override = config.PerDayLimits.find(o => {
+                const d = typeof o.Day === 'string' ? o.Day : dayNames[o.Day];
+                return d === dayName;
+            });
+            if (override) {
+                row.querySelector('.edit-day-limit-enabled-global').checked = override.IsEnabled || false;
+                row.querySelector('.edit-day-limit-minutes-global').value = override.LimitMinutes || 120;
+            } else {
+                row.querySelector('.edit-day-limit-enabled-global').checked = false;
+                row.querySelector('.edit-day-limit-minutes-global').value = config.DailyLimitMinutes || 180;
+            }
+        });
+
+        const perDayToggleGlobal = view.querySelector('#global_enable-per-day-limits');
+        const perDayContainerGlobal = view.querySelector('#global_per-day-limits-container');
+        const updatePerDayVisibilityGlobal = () => {
+            perDayContainerGlobal.style.display = perDayToggleGlobal.checked ? '' : 'none';
+        };
+        perDayToggleGlobal.addEventListener('change', updatePerDayVisibilityGlobal);
+        updatePerDayVisibilityGlobal();
     }
 
 
@@ -420,6 +465,40 @@
                     editor.querySelectorAll('.user-editor-tab-button').forEach(btn => btn.classList.remove('is-active'));
                     buttonTarget.classList.add('is-active');
                     editor.querySelectorAll('.user-editor-tab-content').forEach(content => content.classList.toggle('hide', content.id !== tabId));
+                    return;
+                }
+
+                if (buttonTarget.classList.contains('btnExtendPeriod')) {
+                    const period = buttonTarget.getAttribute('data-period');
+                    const input = buttonTarget.previousElementSibling;
+                    const minutes = parseInt(input ? input.value : 0);
+                    if (!minutes || minutes <= 0) {
+                        toast({ type: 'error', text: 'Please enter a valid number of minutes to extend.' });
+                        return;
+                    }
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("WatchingEye/ExtendPeriodTime"),
+                        data: JSON.stringify({ UserId: userId, Period: period, Minutes: minutes }),
+                        contentType: 'application/json'
+                    }).then(() => {
+                        toast(`${period.charAt(0).toUpperCase() + period.slice(1)} time extended.`);
+                        this.renderLimitedUsers(this.view, this.config);
+                    }).catch(() => toast({ type: 'error', text: 'Error extending time.' }));
+                    return;
+                }
+
+                if (buttonTarget.classList.contains('btnResetPeriod')) {
+                    const period = buttonTarget.getAttribute('data-period');
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("WatchingEye/ResetPeriodTime"),
+                        data: JSON.stringify({ UserId: userId, Period: period }),
+                        contentType: 'application/json'
+                    }).then(() => {
+                        toast(`${period.charAt(0).toUpperCase() + period.slice(1)} time reset.`);
+                        this.renderLimitedUsers(this.view, this.config);
+                    }).catch(() => toast({ type: 'error', text: 'Error resetting time.' }));
                     return;
                 }
 
@@ -694,6 +773,7 @@
             }
 
             let remainingTimeText = 'No active limits.';
+            let periodRowsHtml = '';
             {
                 const formatHoursMinutes = (seconds) => {
                     const totalMinutes = Math.floor(seconds / 60);
@@ -702,29 +782,55 @@
                     return `${hours}:${String(minutes).padStart(2, '0')}`;
                 };
 
-                const parts = [];
-                if (user.EnableDailyLimit && user.DailyLimitMinutes > 0) {
-                    const watched = formatHoursMinutes(status ? status.SecondsWatchedDaily : 0);
-                    const limit = formatHoursMinutes(user.DailyLimitMinutes * 60 + (status ? status.CreditSecondsDaily : 0));
-                    parts.push(`Daily: ${watched}/${limit}`);
+                const periodRows = [];
+
+                if (user.EnableDailyLimit || user.EnablePerDayLimits) {
+                    const pdDayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                    const today = new Date().getDay();
+                    let effectiveDailyLimitMinutes = user.EnableDailyLimit ? (user.DailyLimitMinutes || 0) : 0;
+                    let usedPerDayOverride = false;
+                    if (user.EnablePerDayLimits && user.PerDayLimits && user.PerDayLimits.length > 0) {
+                        const todayOverride = user.PerDayLimits.find(o => {
+                            const d = typeof o.Day === 'string' ? pdDayNames.indexOf(o.Day) : o.Day;
+                            return d === today && o.IsEnabled;
+                        });
+                        if (todayOverride) {
+                            effectiveDailyLimitMinutes = todayOverride.LimitMinutes;
+                            usedPerDayOverride = true;
+                        }
+                    }
+                    if (effectiveDailyLimitMinutes > 0) {
+                        const watched = formatHoursMinutes(status ? status.SecondsWatchedDaily : 0);
+                        const limit = formatHoursMinutes(effectiveDailyLimitMinutes * 60 + (status ? status.CreditSecondsDaily : 0));
+                        const label = usedPerDayOverride ? "Today's time limit used" : "Daily time limit used";
+                        periodRows.push({ label, value: `${watched}/${limit}`, period: 'daily' });
+                    }
                 }
                 if (user.EnableWeeklyLimit && user.WeeklyLimitHours > 0) {
                     const watched = formatHoursMinutes(status ? status.SecondsWatchedWeekly : 0);
                     const limit = formatHoursMinutes(user.WeeklyLimitHours * 3600 + (status ? status.CreditSecondsWeekly : 0));
-                    parts.push(`Weekly: ${watched}/${limit}`);
+                    periodRows.push({ label: 'Weekly time limit used', value: `${watched}/${limit}`, period: 'weekly' });
                 }
                 if (user.EnableMonthlyLimit && user.MonthlyLimitHours > 0) {
                     const watched = formatHoursMinutes(status ? status.SecondsWatchedMonthly : 0);
                     const limit = formatHoursMinutes(user.MonthlyLimitHours * 3600 + (status ? status.CreditSecondsMonthly : 0));
-                    parts.push(`Monthly: ${watched}/${limit}`);
+                    periodRows.push({ label: 'Monthly time limit used', value: `${watched}/${limit}`, period: 'monthly' });
                 }
                 if (user.EnableYearlyLimit && user.YearlyLimitHours > 0) {
                     const watched = formatHoursMinutes(status ? status.SecondsWatchedYearly : 0);
                     const limit = formatHoursMinutes(user.YearlyLimitHours * 3600 + (status ? status.CreditSecondsYearly : 0));
-                    parts.push(`Yearly: ${watched}/${limit}`);
+                    periodRows.push({ label: 'Yearly time limit used', value: `${watched}/${limit}`, period: 'yearly' });
                 }
-                if (parts.length > 0) {
-                    remainingTimeText = parts.join(' | ');
+
+                if (periodRows.length > 0) {
+                    remainingTimeText = periodRows.map(r => `${r.label}: ${r.value}`).join(' | ');
+                    periodRowsHtml = periodRows.map(r => `
+                        <div style="display: flex; align-items: center; gap: 0.4em; margin-top: 0.4em; flex-wrap: wrap;">
+                            <span class="listItemText" style="min-width: 220px;">${r.label}: <strong>${r.value}</strong></span>
+                            <input is="emby-input" type="number" class="extendPeriodMinutes" placeholder="Mins" value="30" style="width: 70px;" data-userid="${user.UserId}" data-period="${r.period}" />
+                            <button is="emby-button" type="button" class="raised mini btnExtendPeriod" data-userid="${user.UserId}" data-period="${r.period}"><span>Extend</span></button>
+                            <button is="emby-button" type="button" class="raised mini button-cancel btnResetPeriod" data-userid="${user.UserId}" data-period="${r.period}"><span>Reset</span></button>
+                        </div>`).join('');
                 }
             }
 
@@ -741,18 +847,14 @@
             }
 
             return `
-            <div class="listItem ${disabledClass}" style="display:flex; align-items: center; padding: 0.5em 0;">
+            <div class="listItem ${disabledClass}" style="display:flex; align-items: flex-start; padding: 0.5em 0;">
                 <div class="listItemBody" style="flex-grow: 1;">
                     <h3 class="listItemTitle">${user.Username}${statusText}</h3>
                     ${timeOutHtml}
-                    <div class="listItemText secondary">${remainingTimeText}</div>
+                    ${periodRowsHtml || `<div class="listItemText secondary">${remainingTimeText}</div>`}
                     <div class="listItemText">${timeWindowText}</div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 0.5em; margin-left: 1em; flex-wrap: wrap; justify-content: flex-end;">
-                    <input is="emby-input" type="number" class="extendTimeMinutes" placeholder="Mins" value="30" style="width: 80px;" data-userid="${user.UserId}" />
-                    <button is="emby-button" type="button" class="raised mini btnExtendTime" data-userid="${user.UserId}" title="Extend Time">
-                        <span>Extend</span>
-                    </button>
                     <input is="emby-input" type="number" class="timeOutMinutes" placeholder="Mins" value="15" style="width: 80px;" data-userid="${user.UserId}" />
                     <button is="emby-button" type="button" class="raised mini button-cancel btnTimeOutUser" data-userid="${user.UserId}" title="Time-out User">
                         <span>Time-Out</span>
@@ -762,7 +864,7 @@
                         <span>Clear TO</span>
                     </button>
                     ` : ''}
-                    <button is="emby-button" type="button" class="fab mini raised paper-icon-button-light btnResetUser" data-userid="${user.UserId}" title="Reset Time">
+                    <button is="emby-button" type="button" class="fab mini raised paper-icon-button-light btnResetUser" data-userid="${user.UserId}" title="Reset All Time">
                         <i class="md-icon">refresh</i>
                     </button>
                     <button is="emby-button" type="button" class="fab mini raised paper-icon-button-light btnEditUser" data-userid="${user.UserId}" title="Edit Limit">
@@ -809,6 +911,26 @@
                 </div>
             `).join('');
 
+            const perDayLimits = user.PerDayLimits || [];
+            let perDayLimitsHtml = daysOfWeek.map((day, index) => {
+                const override = perDayLimits.find(o => {
+                    const d = typeof o.Day === 'string' ? daysOfWeek.indexOf(o.Day) : o.Day;
+                    return d === index;
+                });
+                const isChecked = override ? (override.IsEnabled || false) : false;
+                const limitMins = override ? (override.LimitMinutes || user.DailyLimitMinutes || 120) : (user.DailyLimitMinutes || 120);
+                return `
+                <div class="day-limit-row" data-day="${index}" style="display: flex; align-items: center; gap: 1em; margin-bottom: 0.8em; flex-wrap: wrap;">
+                    <div style="width: 120px; flex-shrink: 0;">
+                        <label class="checkboxContainer" style="padding:0;"><input is="emby-checkbox" type="checkbox" class="edit-day-limit-enabled" ${isChecked ? 'checked' : ''} /><span>${day}</span></label>
+                    </div>
+                    <div style="flex-grow:1; max-width: 200px;">
+                        <input is="emby-input" type="number" class="edit-day-limit-minutes" label="Minutes:" value="${limitMins}" />
+                    </div>
+                </div>
+                `;
+            }).join('');
+
 
             return `
             <div class="user-editor" data-userid="${user.UserId}">
@@ -841,6 +963,13 @@
                      <div class="inputContainer">
                          <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-enable-yearly" ${user.EnableYearlyLimit ? 'checked' : ''} /><span>Enable Yearly Limit</span></label>
                          <input is="emby-input" class="edit-yearly-hours" type="number" label="Yearly Limit (Hours):" value="${user.YearlyLimitHours || 0}" />
+                    </div>
+                    <div class="inputContainer" style="margin-top: 1em;">
+                        <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="edit-enable-per-day-limits" ${user.EnablePerDayLimits ? 'checked' : ''} /><span>Use different limits per day of the week</span></label>
+                        <div class="fieldDescription">Set a specific limit for each day. This works independently — you do not need to enable the flat daily limit above. Days without an override checked will use the flat daily limit if that is also enabled, otherwise they are unlimited.</div>
+                    </div>
+                    <div class="per-day-limits-container" style="margin-top: 1em; padding-top: 1em; border-top: 1px solid #444;">
+                        ${perDayLimitsHtml}
                     </div>
                 </div>
 
@@ -950,7 +1079,10 @@
                 NotificationThresholds: editorContainer.querySelector('.edit-notification-thresholds').value,
 
                 EnableTimeWindows: editorContainer.querySelector('.edit-enable-time-windows').checked,
-                TimeWindows: []
+                TimeWindows: [],
+
+                EnablePerDayLimits: editorContainer.querySelector('.edit-enable-per-day-limits').checked,
+                PerDayLimits: []
             };
 
             const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -965,6 +1097,16 @@
                     EndHour: isNaN(endHour) ? 20 : endHour
                 };
                 userData.TimeWindows.push(dayRule);
+            });
+
+            editorContainer.querySelectorAll('.day-limit-row').forEach(row => {
+                const dayIndex = parseInt(row.getAttribute('data-day')) || 0;
+                const limitMins = parseInt(row.querySelector('.edit-day-limit-minutes').value) || 120;
+                userData.PerDayLimits.push({
+                    Day: dayNames[dayIndex],
+                    IsEnabled: row.querySelector('.edit-day-limit-enabled').checked,
+                    LimitMinutes: limitMins
+                });
             });
 
             if (userId === newUserId) {
@@ -1014,6 +1156,8 @@
                         MonthlyLimitHours: 80,
                         EnableYearlyLimit: false,
                         YearlyLimitHours: 0,
+                        EnablePerDayLimits: false,
+                        PerDayLimits: [],
                         EnableThresholdNotifications: false,
                         NotificationThresholds: '80,95', 
                         ResetTimeOfDayHours: 3, 
@@ -1114,6 +1258,16 @@
                         };
                         mainToggle.addEventListener('change', updateVisibility);
                         updateVisibility();
+
+                        const perDayToggle = editor.querySelector('.edit-enable-per-day-limits');
+                        const perDayContainer = editor.querySelector('.per-day-limits-container');
+                        if (perDayToggle && perDayContainer) {
+                            const updatePerDayVisibility = () => {
+                                perDayContainer.style.display = perDayToggle.checked ? '' : 'none';
+                            };
+                            perDayToggle.addEventListener('change', updatePerDayVisibility);
+                            updatePerDayVisibility();
+                        }
                     }
                 }
             }).catch(err => {
@@ -1178,6 +1332,8 @@
                         MonthlyLimitHours: 80,
                         EnableYearlyLimit: false,
                         YearlyLimitHours: 0,
+                        EnablePerDayLimits: false,
+                        PerDayLimits: [],
                         ResetTimeOfDayHours: 3,
                         WeeklyResetDay: 0,
                         MonthlyResetDay: 1,
@@ -1293,6 +1449,18 @@
                     IsEnabled: row.querySelector('.edit-day-window-enabled-global').checked,
                     StartHour: isNaN(startHour) ? 7 : startHour,
                     EndHour: isNaN(endHour) ? 20 : endHour
+                });
+            });
+
+            globalConfig.EnablePerDayLimits = view.querySelector('#global_enable-per-day-limits').checked;
+            globalConfig.PerDayLimits = [];
+            view.querySelectorAll('#global_per-day-limits-container .day-limit-row').forEach(row => {
+                const dayIndex = parseInt(row.getAttribute('data-day')) || 0;
+                const limitMins = parseInt(row.querySelector('.edit-day-limit-minutes-global').value) || 120;
+                globalConfig.PerDayLimits.push({
+                    Day: dayNames[dayIndex],
+                    IsEnabled: row.querySelector('.edit-day-limit-enabled-global').checked,
+                    LimitMinutes: limitMins
                 });
             });
 

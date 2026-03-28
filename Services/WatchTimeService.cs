@@ -60,6 +60,21 @@ namespace WatchingEye.Services
     [Route(ApiRoutes.GetClientList, "GET", Summary = "Gets a list of unique client names from the logs.")]
     public class GetClientListRequest : IReturn<List<string>> { }
 
+    [Route(ApiRoutes.ExtendPeriodTime, "POST", Summary = "Extends a user's watch time for a specific period.")]
+    public class ExtendPeriodTimeRequest : IReturnVoid
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string Period { get; set; } = string.Empty;
+        public int Minutes { get; set; }
+    }
+
+    [Route(ApiRoutes.ResetPeriodTime, "POST", Summary = "Resets a user's watch time for a specific period.")]
+    public class ResetPeriodTimeRequest : IReturnVoid
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string Period { get; set; } = string.Empty;
+    }
+
 
     public class LimitedUserStatus
     {
@@ -142,6 +157,18 @@ namespace WatchingEye.Services
         public object Get(GetClientListRequest request)
         {
             return LogManager.GetDistinctClientNames();
+        }
+
+        public void Post(ExtendPeriodTimeRequest request)
+        {
+            if (!string.IsNullOrEmpty(request.UserId) && !string.IsNullOrEmpty(request.Period) && request.Minutes > 0)
+                WatchTimeManager.ExtendPeriodTimeForUser(request.UserId, request.Period, request.Minutes);
+        }
+
+        public void Post(ResetPeriodTimeRequest request)
+        {
+            if (!string.IsNullOrEmpty(request.UserId) && !string.IsNullOrEmpty(request.Period))
+                WatchTimeManager.ResetPeriodTimeForUser(request.UserId, request.Period);
         }
 
         public void Post(ResetUserTimeRequest request)

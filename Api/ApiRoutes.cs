@@ -13,6 +13,8 @@
         public const string GetClientList = "/WatchingEye/GetClientList";
         public const string ClearTimeOut = "/WatchingEye/ClearTimeOut";
         public const string DeleteUserData = "/WatchingEye/DeleteUserData";
+        public const string ExtendPeriodTime = "/WatchingEye/ExtendPeriodTime";
+        public const string ResetPeriodTime = "/WatchingEye/ResetPeriodTime";
 
         // Public API Routes
         public const string PublicLimitedUsersStatus = "/WatchingEye/Public/Status";

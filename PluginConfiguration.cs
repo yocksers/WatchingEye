@@ -12,6 +12,13 @@ namespace WatchingEye
         public bool IsEnabled { get; set; } = false;
     }
 
+    public class DailyLimitOverride
+    {
+        public DayOfWeek Day { get; set; }
+        public bool IsEnabled { get; set; } = false;
+        public int LimitMinutes { get; set; } = 120;
+    }
+
     public class LimitedUser
     {
         public string UserId { get; set; } = string.Empty;
@@ -20,6 +27,9 @@ namespace WatchingEye
 
         public bool EnableDailyLimit { get; set; } = true;
         public int DailyLimitMinutes { get; set; } = 120;
+
+        public bool EnablePerDayLimits { get; set; } = false;
+        public List<DailyLimitOverride> PerDayLimits { get; set; } = new List<DailyLimitOverride>();
 
         public bool EnableWeeklyLimit { get; set; } = false;
         public int WeeklyLimitHours { get; set; } = 20;
