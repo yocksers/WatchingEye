@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
@@ -40,13 +41,18 @@ namespace WatchingEye
             { "RefFramesNotSupported", "the number of reference frames is not supported" }
         };
 
+        private static readonly ConcurrentDictionary<string, string> _parseCache = new();
+
         public static string Parse(string rawReasons)
         {
             if (string.IsNullOrWhiteSpace(rawReasons))
-            {
                 return "an unknown reason";
-            }
 
+            return _parseCache.GetOrAdd(rawReasons, static raw => ParseCore(raw));
+        }
+
+        private static string ParseCore(string rawReasons)
+        {
             var reasons = rawReasons.Split(',').Select(r => r.Trim());
             var friendlyReasons = new List<string>();
 

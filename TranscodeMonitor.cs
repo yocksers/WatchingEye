@@ -22,6 +22,8 @@ namespace WatchingEye
 
         private static List<string>? _excludedLibraryPathsCache;
         private static string _cachedConfigVersion = string.Empty;
+        private static Dictionary<string, string>? _locationToLibraryIdCache;
+        private static string _locationCacheConfigVersion = string.Empty;
         private static readonly object _cacheLock = new object();
 
         private static readonly ConcurrentDictionary<string, int> _transcodeNotificationsSent = new();
@@ -84,18 +86,15 @@ namespace WatchingEye
                 return;
             }
 
+            try
+            {
             var sessions = _sessionManager.Sessions.ToList();
             var now = DateTime.UtcNow;
             var timeout = TimeSpan.FromMinutes(config.PausedStreamTimeoutMinutes);
 
-            var exclusionCache = new Dictionary<string, bool>();
             foreach (var session in sessions)
             {
-                if (!exclusionCache.TryGetValue(session.Id, out var isExcluded))
-                {
-                    isExcluded = IsSessionExcluded(session, config);
-                    exclusionCache[session.Id] = isExcluded;
-                }
+                var isExcluded = IsSessionExcluded(session, config);
 
                 if (isExcluded)
                 {
@@ -133,6 +132,11 @@ namespace WatchingEye
                 {
                     _sessionPauseStartTime.TryRemove(pausedId, out _);
                 }
+            }
+            }
+            catch (Exception ex)
+            {
+                _logger?.ErrorException("[TranscodeMonitor] Error during session check timer.", ex);
             }
         }
 
@@ -217,7 +221,6 @@ namespace WatchingEye
                     _notificationLoopActive.TryRemove(key, out _);
                 }
 
-                WatchTimeManager.OnSessionStopped(sessionId);
                 _sessionsBeingBlocked.TryRemove(sessionId, out _);
             }
         }
@@ -264,12 +267,32 @@ namespace WatchingEye
                     if (fullItem != null && !string.IsNullOrEmpty(fullItem.Path) && _libraryManager != null)
                     {
                         string? libraryId = null;
-                        foreach (var library in _libraryManager.GetVirtualFolders())
+                        Dictionary<string, string>? locationCache;
+                        lock (_cacheLock)
                         {
-                            if (library.Locations.Any(loc => fullItem.Path.StartsWith(loc, StringComparison.OrdinalIgnoreCase)))
+                            if (config.ConfigurationVersion != _locationCacheConfigVersion)
                             {
-                                libraryId = library.Id.ToString();
-                                break;
+                                var newCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                                foreach (var library in _libraryManager.GetVirtualFolders())
+                                {
+                                    foreach (var loc in library.Locations)
+                                        newCache[loc] = library.Id.ToString();
+                                }
+                                _locationToLibraryIdCache = newCache;
+                                _locationCacheConfigVersion = config.ConfigurationVersion;
+                            }
+                            locationCache = _locationToLibraryIdCache;
+                        }
+
+                        if (locationCache != null)
+                        {
+                            foreach (var kvp in locationCache)
+                            {
+                                if (fullItem.Path.StartsWith(kvp.Key, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    libraryId = kvp.Value;
+                                    break;
+                                }
                             }
                         }
 

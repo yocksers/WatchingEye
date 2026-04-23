@@ -32,8 +32,10 @@ namespace WatchingEye
         private static readonly object _lock = new object();
         private static List<LogEntry> _entries = new List<LogEntry>();
         private static bool _isDirty = false;
+        private static DateTime _lastSaveTime = DateTime.MinValue;
 
         private const int MaxEntries = 200;
+        private const int SaveIntervalSeconds = 30;
 
         public static void Start(ILogger logger, IJsonSerializer jsonSerializer, IApplicationPaths appPaths)
         {
@@ -76,7 +78,9 @@ namespace WatchingEye
         {
             lock (_lock)
             {
-                return _entries.AsEnumerable().Reverse().ToList();
+                var copy = new List<LogEntry>(_entries);
+                copy.Reverse();
+                return copy;
             }
         }
 
@@ -107,7 +111,8 @@ namespace WatchingEye
                     _entries.RemoveAt(0);
                 _isDirty = true;
             }
-            Save();
+            if ((DateTime.UtcNow - _lastSaveTime).TotalSeconds >= SaveIntervalSeconds)
+                Save();
         }
 
         private static void Load()
@@ -154,6 +159,7 @@ namespace WatchingEye
                         File.Move(tempPath, _logDataPath);
 
                     _isDirty = false;
+                    _lastSaveTime = DateTime.UtcNow;
                 }
                 catch (Exception ex)
                 {
